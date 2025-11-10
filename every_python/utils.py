@@ -1,5 +1,3 @@
-
-
 import re
 import subprocess
 from pathlib import Path
@@ -26,19 +24,21 @@ def get_llvm_version_for_commit(commit: str, repo_dir: Path) -> str | None:
 
     return None
 
+
 def check_llvm_available(version: str) -> bool:
     """
     Check if a specific LLVM version is available on the system.
-    
+
     Searches for clang and llvm-readobj with the correct version.
     """
     required_tools = ["clang", "llvm-readobj"]
-    
+
     for tool in required_tools:
         if not _check_tool_available(tool, version):
             return False
-    
+
     return True
+
 
 def _check_tool_available(tool: str, version: str) -> bool:
     """Check if a specific tool with the given version is available."""
@@ -75,13 +75,20 @@ def _get_homebrew_llvm_tool(tool: str, version: str | None = None) -> str | None
             tool_path = f"{llvm_prefix}/bin/{tool}"
 
             # Check if the tool exists
-            if subprocess.run(
-                [tool_path, "--version"],
-                capture_output=True,
-                timeout=5,
-            ).returncode == 0:
+            if (
+                subprocess.run(
+                    [tool_path, "--version"],
+                    capture_output=True,
+                    timeout=5,
+                ).returncode
+                == 0
+            ):
                 return tool_path
-        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        except (
+            subprocess.CalledProcessError,
+            FileNotFoundError,
+            subprocess.TimeoutExpired,
+        ):
             pass
 
     # Try default llvm formula
@@ -97,16 +104,24 @@ def _get_homebrew_llvm_tool(tool: str, version: str | None = None) -> str | None
         tool_path = f"{llvm_prefix}/bin/{tool}"
 
         # Check if the tool exists
-        if subprocess.run(
-            [tool_path, "--version"],
-            capture_output=True,
-            timeout=5,
-        ).returncode == 0:
+        if (
+            subprocess.run(
+                [tool_path, "--version"],
+                capture_output=True,
+                timeout=5,
+            ).returncode
+            == 0
+        ):
             return tool_path
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ):
         pass
 
     return None
+
 
 def _check_tool_version(tool_name: str, expected_version: str) -> bool:
     """Check if the given tool matches the required version."""
@@ -118,9 +133,13 @@ def _check_tool_version(tool_name: str, expected_version: str) -> bool:
             check=True,
             timeout=5,
         )
-        
+
         # Look for version pattern like "version 20.1.8"
         pattern = rf"version\s+{expected_version}\.\d+\.\d+"
         return bool(re.search(pattern, result.stdout))
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ):
         return False

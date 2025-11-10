@@ -22,8 +22,12 @@ CPYTHON_REPO = "https://github.com/python/cpython.git"
 def ensure_repo() -> Path:
     """Ensure CPython repo exists as a blobless clone."""
     if not REPO_DIR.exists():
-        console.print("[yellow]First-time setup: cloning CPython repository...[/yellow]")
-        console.print("This will download ~200MB and only needs to happen once per version.")
+        console.print(
+            "[yellow]First-time setup: cloning CPython repository...[/yellow]"
+        )
+        console.print(
+            "This will download ~200MB and only needs to happen once per version."
+        )
 
         BASE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -106,7 +110,9 @@ def build_python(commit: str, enable_jit: bool = False, verbose: bool = False) -
     build_dir = BUILDS_DIR / f"{commit}{build_suffix}"
 
     if build_dir.exists():
-        console.print(f"[green]Build {commit[:7]}{build_suffix} already exists, skipping build[/green]")
+        console.print(
+            f"[green]Build {commit[:7]}{build_suffix} already exists, skipping build[/green]"
+        )
         return build_dir
 
     with Progress(
@@ -150,18 +156,26 @@ def build_python(commit: str, enable_jit: bool = False, verbose: bool = False) -
         if configure_result.returncode != 0:
             if not verbose:
                 progress.stop()
-            console.print(f"[red]Configure failed: {configure_result.stderr if not verbose else ''}[/red]")
+            console.print(
+                f"[red]Configure failed: {configure_result.stderr if not verbose else ''}[/red]"
+            )
             raise typer.Exit(1)
 
         # Build
         import multiprocessing
+
         ncpu = multiprocessing.cpu_count()
 
         if verbose:
-            console.print(f"[cyan]Building with {ncpu} cores (this may a few minutes)...[/cyan]")
+            console.print(
+                f"[cyan]Building with {ncpu} cores (this may a few minutes)...[/cyan]"
+            )
             console.print(f"[cyan]Running: make -j{ncpu}[/cyan]")
         else:
-            progress.update(task, description=f"Building with {ncpu} cores (this may a few minutes)...")
+            progress.update(
+                task,
+                description=f"Building with {ncpu} cores (this may a few minutes)...",
+            )
 
         make_result = subprocess.run(
             ["make", f"-j{ncpu}"],
@@ -173,7 +187,9 @@ def build_python(commit: str, enable_jit: bool = False, verbose: bool = False) -
         if make_result.returncode != 0:
             if not verbose:
                 progress.stop()
-            console.print(f"[red]Build failed: {make_result.stderr if not verbose else ''}[/red]")
+            console.print(
+                f"[red]Build failed: {make_result.stderr if not verbose else ''}[/red]"
+            )
             raise typer.Exit(1)
 
         # Install to prefix
@@ -197,9 +213,16 @@ def build_python(commit: str, enable_jit: bool = False, verbose: bool = False) -
 
 @app.command()
 def install(
-    ref: Annotated[str, typer.Argument(help="Git ref to install (main, v3.13.0, commit hash, etc.)")],
-    jit: Annotated[bool, typer.Option("--jit", help="Enable experimental JIT compiler")] = False,
-    verbose: Annotated[bool, typer.Option("--verbose", help="Show build output")] = False,
+    ref: Annotated[
+        str,
+        typer.Argument(help="Git ref to install (main, v3.13.0, commit hash, etc.)"),
+    ],
+    jit: Annotated[
+        bool, typer.Option("--jit", help="Enable experimental JIT compiler")
+    ] = False,
+    verbose: Annotated[
+        bool, typer.Option("--verbose", help="Show build output")
+    ] = False,
 ):
     """Build and install a specific CPython version."""
     try:
@@ -208,7 +231,9 @@ def install(
 
         build_dir = build_python(commit, enable_jit=jit, verbose=verbose)
 
-        console.print(f"\n[bold green]Successfully built CPython {commit[:7]}[/bold green]")
+        console.print(
+            f"\n[bold green]Successfully built CPython {commit[:7]}[/bold green]"
+        )
         console.print(f"Location: {build_dir}")
 
         # Check if JIT was actually enabled (by checking the build directory name)
@@ -239,7 +264,9 @@ def run(
         build_dir = BUILDS_DIR / f"{commit}{build_suffix}"
 
         if not build_dir.exists():
-            console.print(f"[yellow]Build for {ref}{build_suffix} not found, building now...[/yellow]")
+            console.print(
+                f"[yellow]Build for {ref}{build_suffix} not found, building now...[/yellow]"
+            )
             build_dir = build_python(commit, enable_jit=jit)
 
         python_bin = build_dir / "bin" / "python3"
@@ -268,7 +295,9 @@ def list_builds():
     """List locally built Python versions."""
     if not BUILDS_DIR.exists() or not list(BUILDS_DIR.iterdir()):
         console.print("[yellow]No builds found.[/yellow]")
-        console.print("Run [bold]every-python install main[/bold] to build the latest version.")
+        console.print(
+            "Run [bold]every-python install main[/bold] to build the latest version."
+        )
         return
 
     # Get version info for all builds
@@ -297,7 +326,8 @@ def list_builds():
 
         # Extract "Python X.Y.Z" or "Python X.Y.Za1+"
         import re
-        match = re.search(r'Python (\d+)\.(\d+)\.(\d+)([a-z0-9+]*)', version_str)
+
+        match = re.search(r"Python (\d+)\.(\d+)\.(\d+)([a-z0-9+]*)", version_str)
         if match:
             major = int(match.group(1))
             minor = int(match.group(2))
@@ -307,7 +337,13 @@ def list_builds():
         return (0, 0, 0, "")
 
     builds_with_version.sort(
-        key=lambda x: (-parse_version(x[1])[0], -parse_version(x[1])[1], -parse_version(x[1])[2], parse_version(x[1])[3], x[2])
+        key=lambda x: (
+            -parse_version(x[1])[0],
+            -parse_version(x[1])[1],
+            -parse_version(x[1])[2],
+            parse_version(x[1])[3],
+            x[2],
+        )
     )
 
     # Create Rich table
@@ -319,6 +355,7 @@ def list_builds():
     table.add_column("Message", style="dim", no_wrap=False)
 
     from datetime import datetime
+
     for build, version, is_jit in builds_with_version:
         commit = build.name.replace("-jit", "") if is_jit else build.name
 
@@ -334,7 +371,9 @@ def list_builds():
             parts = commit_info_result.stdout.strip().split("|", 1)
             commit_timestamp = int(parts[0])
             commit_msg = parts[1] if len(parts) > 1 else ""
-            timestamp = datetime.fromtimestamp(commit_timestamp).strftime("%Y-%m-%d %H:%M")
+            timestamp = datetime.fromtimestamp(commit_timestamp).strftime(
+                "%Y-%m-%d %H:%M"
+            )
         else:
             timestamp = "unknown"
             commit_msg = ""
@@ -362,7 +401,7 @@ def list_builds():
 
 @app.command()
 def clean(
-    ref: Annotated[str, typer.Argument(help="Git ref to remove")] = None,
+    ref: Annotated[str | None, typer.Argument(help="Git ref to remove")] = None,
     all: Annotated[bool, typer.Option("--all", help="Remove all builds")] = False,
 ):
     """Remove built Python versions to free up space."""
@@ -386,7 +425,9 @@ def clean(
 
             if removed:
                 variants = " and ".join(removed)
-                console.print(f"[green]✓ Removed {variants} build(s) for {commit[:7]}[/green]")
+                console.print(
+                    f"[green]✓ Removed {variants} build(s) for {commit[:7]}[/green]"
+                )
             else:
                 console.print(f"[yellow]No builds found for {commit[:7]}[/yellow]")
         except typer.Exit:
@@ -400,8 +441,13 @@ def clean(
 def bisect(
     good: Annotated[str, typer.Option("--good", help="Known good commit/ref")],
     bad: Annotated[str, typer.Option("--bad", help="Known bad commit/ref")],
-    run: Annotated[str, typer.Option("--run", help="Command to run (exit 0 = good, non-zero = bad)")],
-    jit: Annotated[bool, typer.Option("--jit", help="Enable experimental JIT compiler")] = False,
+    run: Annotated[
+        str,
+        typer.Option("--run", help="Command to run (exit 0 = good, non-zero = bad)"),
+    ],
+    jit: Annotated[
+        bool, typer.Option("--jit", help="Enable experimental JIT compiler")
+    ] = False,
 ):
     """
     Use git bisect to find the commit that introduced a bug.
@@ -450,11 +496,17 @@ def bisect(
         if "Bisecting:" in initial_result.stdout:
             # Example: "Bisecting: 3 revisions left to test after this (roughly 2 steps)"
             import re
-            match = re.search(r'Bisecting: (\d+) revisions? left.*?\(roughly (\d+) steps?\)', initial_result.stdout)
+
+            match = re.search(
+                r"Bisecting: (\d+) revisions? left.*?\(roughly (\d+) steps?\)",
+                initial_result.stdout,
+            )
             if match:
                 revisions = match.group(1)
                 steps = match.group(2)
-                console.print(f"[dim]Bisecting: {revisions} revisions left to test (roughly {steps} steps)[/dim]")
+                console.print(
+                    f"[dim]Bisecting: {revisions} revisions left to test (roughly {steps} steps)[/dim]"
+                )
 
         def is_bisect_done() -> bool:
             """Check if bisect is complete by checking if BISECT_LOG exists."""
@@ -477,7 +529,9 @@ def bisect(
             )
             current_commit = result.stdout.strip()
 
-            console.print(f"\n[bold cyan]Testing commit {current_commit[:7]}...[/bold cyan]")
+            console.print(
+                f"\n[bold cyan]Testing commit {current_commit[:7]}...[/bold cyan]"
+            )
 
             # Build this commit
             try:
@@ -486,7 +540,9 @@ def bisect(
 
                 if not python_bin.exists():
                     # Build directory exists but python binary is missing - incomplete build
-                    console.print("[yellow]Incomplete build detected, cleaning and rebuilding...[/yellow]")
+                    console.print(
+                        "[yellow]Incomplete build detected, cleaning and rebuilding...[/yellow]"
+                    )
                     shutil.rmtree(build_dir)
 
                     # Retry build
@@ -495,12 +551,20 @@ def bisect(
                         python_bin = build_dir / "bin" / "python3"
 
                         if not python_bin.exists():
-                            console.print("[red]Build failed after retry, skipping commit (exit 125)[/red]")
-                            subprocess.run(["git", "bisect", "skip"], cwd=REPO_DIR, check=True)
+                            console.print(
+                                "[red]Build failed after retry, skipping commit (exit 125)[/red]"
+                            )
+                            subprocess.run(
+                                ["git", "bisect", "skip"], cwd=REPO_DIR, check=True
+                            )
                             continue
                     except Exception:
-                        console.print("[red]Build failed, skipping commit (exit 125)[/red]")
-                        subprocess.run(["git", "bisect", "skip"], cwd=REPO_DIR, check=True)
+                        console.print(
+                            "[red]Build failed, skipping commit (exit 125)[/red]"
+                        )
+                        subprocess.run(
+                            ["git", "bisect", "skip"], cwd=REPO_DIR, check=True
+                        )
                         continue
 
                 # Run the test command
@@ -514,7 +578,9 @@ def bisect(
 
                 # Handle exit codes like every-ts
                 if test_result.returncode == 0:
-                    console.print("[green]✓ Test passed (exit 0) - marking as good[/green]")
+                    console.print(
+                        "[green]✓ Test passed (exit 0) - marking as good[/green]"
+                    )
                     bisect_result = subprocess.run(
                         ["git", "bisect", "good"],
                         cwd=REPO_DIR,
@@ -523,7 +589,9 @@ def bisect(
                         check=True,
                     )
                 elif test_result.returncode == 125:
-                    console.print("[yellow]Test requested skip (exit 125) - skipping commit[/yellow]")
+                    console.print(
+                        "[yellow]Test requested skip (exit 125) - skipping commit[/yellow]"
+                    )
                     bisect_result = subprocess.run(
                         ["git", "bisect", "skip"],
                         cwd=REPO_DIR,
@@ -532,7 +600,9 @@ def bisect(
                         check=True,
                     )
                 elif 1 <= test_result.returncode < 128:
-                    console.print(f"[red]✗ Test failed (exit {test_result.returncode}) - marking as bad[/red]")
+                    console.print(
+                        f"[red]✗ Test failed (exit {test_result.returncode}) - marking as bad[/red]"
+                    )
                     bisect_result = subprocess.run(
                         ["git", "bisect", "bad"],
                         cwd=REPO_DIR,
@@ -541,7 +611,9 @@ def bisect(
                         check=True,
                     )
                 else:
-                    console.print(f"[red]Test exited with code {test_result.returncode} >= 128[/red]")
+                    console.print(
+                        f"[red]Test exited with code {test_result.returncode} >= 128[/red]"
+                    )
                     raise typer.Exit(1)
 
                 # Check if bisect completed
@@ -551,11 +623,17 @@ def bisect(
                 # Show steps remaining after each bisect step
                 if "Bisecting:" in bisect_result.stdout:
                     import re
-                    match = re.search(r'Bisecting: (\d+) revisions? left.*?\(roughly (\d+) steps?\)', bisect_result.stdout)
+
+                    match = re.search(
+                        r"Bisecting: (\d+) revisions? left.*?\(roughly (\d+) steps?\)",
+                        bisect_result.stdout,
+                    )
                     if match:
                         revisions = match.group(1)
                         steps = match.group(2)
-                        console.print(f"[dim]→ {revisions} revisions left (roughly {steps} steps)[/dim]")
+                        console.print(
+                            f"[dim]→ {revisions} revisions left (roughly {steps} steps)[/dim]"
+                        )
 
             except Exception as e:
                 console.print(f"[red]Error during bisect: {e}[/red]")
@@ -574,12 +652,20 @@ def bisect(
         # Extract and show the first bad commit from the log
         for line in result.stdout.splitlines():
             if line.startswith("# first bad commit:"):
-                commit_hash = line.split("[")[1].split("]")[0] if "[" in line else "unknown"
+                commit_hash = (
+                    line.split("[")[1].split("]")[0] if "[" in line else "unknown"
+                )
                 console.print(f"\nFirst bad commit: [bold]{commit_hash}[/bold]")
 
                 # Show commit details
                 commit_result = subprocess.run(
-                    ["git", "show", "--no-patch", "--format=%H%n%an <%ae>%n%ad%n%s", commit_hash],
+                    [
+                        "git",
+                        "show",
+                        "--no-patch",
+                        "--format=%H%n%an <%ae>%n%ad%n%s",
+                        commit_hash,
+                    ],
                     cwd=REPO_DIR,
                     capture_output=True,
                     text=True,

@@ -9,11 +9,12 @@ dependencies = [
     "rich>=13.0.0",
 ]
 
-[project.optional-dependencies]
-test = [
-    "pytest>=7.0.0",
-    "pytest-mock>=3.10.0",
-]
-
 [project.scripts]
 every-python = "every_python.main:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-mock>=3.10.0",
+    "pyright>=1.1.407",
+]
