@@ -1,5 +1,6 @@
 import re
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -143,3 +144,37 @@ def _check_tool_version(tool_name: str, expected_version: str) -> bool:
         subprocess.TimeoutExpired,
     ):
         return False
+
+
+@dataclass
+class BuildInfo:
+    """Information about a Python build."""
+
+    commit: str
+    jit_enabled: bool
+
+    @property
+    def suffix(self) -> str:
+        """Get the build suffix."""
+        return "-jit" if self.jit_enabled else ""
+
+    @property
+    def directory_name(self) -> str:
+        """Get the build directory name."""
+        return f"{self.commit}{self.suffix}"
+
+    def get_path(self, builds_dir: Path) -> Path:
+        """Get the full build directory path."""
+        return builds_dir / self.directory_name
+
+    @classmethod
+    def from_directory_name(cls, name: str) -> "BuildInfo":
+        """Parse build info from directory name."""
+        if name.endswith("-jit"):
+            return cls(commit=name[:-4], jit_enabled=True)
+        return cls(commit=name, jit_enabled=False)
+
+    @classmethod
+    def from_directory(cls, path: Path) -> "BuildInfo":
+        """Parse build info from directory path."""
+        return cls.from_directory_name(path.name)

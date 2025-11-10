@@ -4,12 +4,56 @@ from unittest.mock import Mock, patch
 import subprocess
 
 from every_python.utils import (
+    BuildInfo,
     get_llvm_version_for_commit,
     check_llvm_available,
     _check_tool_available,
     _check_tool_version,
     _get_homebrew_llvm_tool,
 )
+
+
+class TestBuildInfo:
+    """Test BuildInfo dataclass."""
+
+    def test_non_jit_build(self):
+        """Test non-JIT build info."""
+        info = BuildInfo(commit="abc123def456", jit_enabled=False)
+        assert info.suffix == ""
+        assert info.directory_name == "abc123def456"
+
+    def test_jit_build(self):
+        """Test JIT build info."""
+        info = BuildInfo(commit="abc123def456", jit_enabled=True)
+        assert info.suffix == "-jit"
+        assert info.directory_name == "abc123def456-jit"
+
+    def test_get_path(self, tmp_path):
+        """Test getting build path."""
+        builds_dir = tmp_path / "builds"
+        info = BuildInfo(commit="abc123", jit_enabled=True)
+        path = info.get_path(builds_dir)
+        assert path == builds_dir / "abc123-jit"
+
+    def test_from_directory_name_non_jit(self):
+        """Test parsing non-JIT directory name."""
+        info = BuildInfo.from_directory_name("abc123def456")
+        assert info.commit == "abc123def456"
+        assert info.jit_enabled is False
+
+    def test_from_directory_name_jit(self):
+        """Test parsing JIT directory name."""
+        info = BuildInfo.from_directory_name("abc123def456-jit")
+        assert info.commit == "abc123def456"
+        assert info.jit_enabled is True
+
+    def test_from_directory(self, tmp_path):
+        """Test parsing from directory path."""
+        build_dir = tmp_path / "abc123-jit"
+        build_dir.mkdir(parents=True)
+        info = BuildInfo.from_directory(build_dir)
+        assert info.commit == "abc123"
+        assert info.jit_enabled is True
 
 
 class TestGetLLVMVersion:
@@ -136,9 +180,7 @@ class TestCheckToolAvailable:
 
     @patch("every_python.utils._get_homebrew_llvm_tool")
     @patch("every_python.utils._check_tool_version")
-    def test_homebrew_tool_available(
-        self, mock_check_version, mock_homebrew_tool
-    ):
+    def test_homebrew_tool_available(self, mock_check_version, mock_homebrew_tool):
         """Test finding tool via Homebrew."""
         mock_check_version.return_value = False  # Not in PATH
         mock_homebrew_tool.return_value = "/opt/homebrew/opt/llvm@20/bin/clang"

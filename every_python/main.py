@@ -2,13 +2,20 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing_extensions import Annotated
+
 import typer
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
+from typing_extensions import Annotated
 
-from every_python.utils import check_llvm_available, get_llvm_version_for_commit
+from every_python.output import get_output
+from every_python.runner import CommandResult, CommandRunner, get_runner
+from every_python.utils import (
+    BuildInfo,
+    check_llvm_available,
+    get_llvm_version_for_commit,
+)
 
 app = typer.Typer()
 console = Console()
@@ -22,27 +29,26 @@ CPYTHON_REPO = "https://github.com/python/cpython.git"
 def ensure_repo() -> Path:
     """Ensure CPython repo exists as a blobless clone."""
     if not REPO_DIR.exists():
-        console.print(
-            "[yellow]First-time setup: cloning CPython repository...[/yellow]"
-        )
-        console.print(
+        runner: CommandRunner = get_runner()
+        output = get_output()
+
+        output.warning("First-time setup: cloning CPython repository...")
+        output.info(
             "This will download ~200MB and only needs to happen once per version."
         )
 
         BASE_DIR.mkdir(parents=True, exist_ok=True)
 
         # Blobless clone to save space and time
-        result = subprocess.run(
-            ["git", "clone", "--filter=blob:none", CPYTHON_REPO, str(REPO_DIR)],
-            capture_output=True,
-            text=True,
+        result: CommandResult = runner.run(
+            ["git", "clone", "--filter=blob:none", CPYTHON_REPO, str(REPO_DIR)]
         )
 
-        if result.returncode != 0:
-            console.print(f"[red]Failed to clone CPython: {result.stderr}[/red]")
+        if not result.success:
+            output.error(f"Failed to clone CPython: {result.stderr}")
             raise typer.Exit(1)
 
-        console.print("[green]✓ Repository cloned successfully[/green]")
+        output.success("✓ Repository cloned successfully")
 
     return REPO_DIR
 
@@ -50,34 +56,24 @@ def ensure_repo() -> Path:
 def resolve_ref(ref: str) -> str:
     """Resolve a git ref (tag, branch, commit) to a full commit hash."""
     ensure_repo()
+    runner = get_runner()
+    output = get_output()
 
     # Fetch latest refs
-    subprocess.run(
-        ["git", "fetch", "--tags", "--quiet"],
-        cwd=REPO_DIR,
-        capture_output=True,
-    )
+    runner.run_git(["fetch", "--tags", "--quiet"], REPO_DIR)
 
     # Try to resolve the ref
-    result = subprocess.run(
-        ["git", "rev-parse", "--verify", f"{ref}^{{commit}}"],
-        cwd=REPO_DIR,
-        capture_output=True,
-        text=True,
-    )
+    result = runner.run_git(["rev-parse", "--verify", f"{ref}^{{commit}}"], REPO_DIR)
 
-    if result.returncode != 0:
+    if not result.success:
         # Try with origin/ prefix
-        result = subprocess.run(
-            ["git", "rev-parse", "--verify", f"origin/{ref}^{{commit}}"],
-            cwd=REPO_DIR,
-            capture_output=True,
-            text=True,
+        result = runner.run_git(
+            ["rev-parse", "--verify", f"origin/{ref}^{{commit}}"], REPO_DIR
         )
 
-        if result.returncode != 0:
-            console.print(f"[red]Could not resolve '{ref}' to a commit[/red]")
-            console.print("Try: main, 3.13, v3.13.0, or a commit hash")
+        if not result.success:
+            output.error(f"Could not resolve '{ref}' to a commit")
+            output.info("Try: main, 3.13, v3.13.0, or a commit hash")
             raise typer.Exit(1)
 
     return result.stdout.strip()
@@ -86,32 +82,34 @@ def resolve_ref(ref: str) -> str:
 def build_python(commit: str, enable_jit: bool = False, verbose: bool = False) -> Path:
     """Build Python at the given commit."""
     ensure_repo()
+    runner = get_runner()
+    output = get_output()
 
     # Check JIT availability if requested
     if enable_jit:
         llvm_version = get_llvm_version_for_commit(commit, REPO_DIR)
 
         if not llvm_version:
-            console.print("[yellow]Warning: JIT not available in this commit[/yellow]")
+            output.warning("Warning: JIT not available in this commit")
             if not typer.confirm("Continue building without JIT?", default=True):
                 raise typer.Exit(0)
             enable_jit = False
         elif not check_llvm_available(llvm_version):
-            console.print(f"[yellow]Warning: LLVM {llvm_version} not found[/yellow]")
-            console.print(f"Install with: brew install llvm@{llvm_version}")
+            output.warning(f"Warning: LLVM {llvm_version} not found")
+            output.info(f"Install with: brew install llvm@{llvm_version}")
             if not typer.confirm("Continue building without JIT?", default=True):
                 raise typer.Exit(0)
             enable_jit = False
         else:
-            console.print(f"[cyan]Building with JIT (LLVM {llvm_version})[/cyan]")
+            output.status(f"Building with JIT (LLVM {llvm_version})")
 
     # Determine build directory based on final JIT flag (after availability checks)
-    build_suffix = "-jit" if enable_jit else ""
-    build_dir = BUILDS_DIR / f"{commit}{build_suffix}"
+    build_info = BuildInfo(commit=commit, jit_enabled=enable_jit)
+    build_dir = build_info.get_path(BUILDS_DIR)
 
     if build_dir.exists():
-        console.print(
-            f"[green]Build {commit[:7]}{build_suffix} already exists, skipping build[/green]"
+        output.success(
+            f"Build {commit[:7]}{build_info.suffix} already exists, skipping build"
         )
         return build_dir
 
@@ -122,16 +120,11 @@ def build_python(commit: str, enable_jit: bool = False, verbose: bool = False) -
     ) as progress:
         # Checkout the commit
         task = progress.add_task(f"Checking out {commit[:7]}...", total=None)
-        result = subprocess.run(
-            ["git", "checkout", commit],
-            cwd=REPO_DIR,
-            capture_output=True,
-            text=True,
-        )
+        result = runner.run_git(["checkout", commit], REPO_DIR)
 
-        if result.returncode != 0:
+        if not result.success:
             progress.stop()
-            console.print(f"[red]Failed to checkout {commit}: {result.stderr}[/red]")
+            output.error(f"Failed to checkout {commit}: {result.stderr}")
             raise typer.Exit(1)
 
         # Configure
@@ -144,20 +137,19 @@ def build_python(commit: str, enable_jit: bool = False, verbose: bool = False) -
 
         if verbose:
             progress.stop()
-            console.print(f"[cyan]Running: {' '.join(configure_args)}[/cyan]")
+            output.status(f"Running: {' '.join(configure_args)}")
 
-        configure_result = subprocess.run(
+        configure_result = runner.run(
             configure_args,
             cwd=REPO_DIR,
             capture_output=not verbose,
-            text=True,
         )
 
-        if configure_result.returncode != 0:
+        if not configure_result.success:
             if not verbose:
                 progress.stop()
-            console.print(
-                f"[red]Configure failed: {configure_result.stderr if not verbose else ''}[/red]"
+            output.error(
+                f"Configure failed: {configure_result.stderr if not verbose else ''}"
             )
             raise typer.Exit(1)
 
@@ -167,43 +159,36 @@ def build_python(commit: str, enable_jit: bool = False, verbose: bool = False) -
         ncpu = multiprocessing.cpu_count()
 
         if verbose:
-            console.print(
-                f"[cyan]Building with {ncpu} cores (this may a few minutes)...[/cyan]"
-            )
-            console.print(f"[cyan]Running: make -j{ncpu}[/cyan]")
+            output.status(f"Building with {ncpu} cores (this may a few minutes)...")
+            output.status(f"Running: make -j{ncpu}")
         else:
             progress.update(
                 task,
                 description=f"Building with {ncpu} cores (this may a few minutes)...",
             )
 
-        make_result = subprocess.run(
+        make_result = runner.run(
             ["make", f"-j{ncpu}"],
             cwd=REPO_DIR,
             capture_output=not verbose,
-            text=True,
         )
 
-        if make_result.returncode != 0:
+        if not make_result.success:
             if not verbose:
                 progress.stop()
-            console.print(
-                f"[red]Build failed: {make_result.stderr if not verbose else ''}[/red]"
-            )
+            output.error(f"Build failed: {make_result.stderr if not verbose else ''}")
             raise typer.Exit(1)
 
         # Install to prefix
         progress.update(task, description="Installing...")
-        install_result = subprocess.run(
+        install_result: CommandResult = runner.run(
             ["make", "install"],
             cwd=REPO_DIR,
-            capture_output=True,
-            text=True,
         )
 
-        if install_result.returncode != 0:
+        if not install_result.success:
             progress.stop()
-            console.print(f"[red]Install failed: {install_result.stderr}[/red]")
+            output.error(f"Install failed: {install_result.stderr}")
             raise typer.Exit(1)
 
         progress.update(task, description=f"[green]✓ Built {commit[:7]}[/green]")
@@ -225,16 +210,15 @@ def install(
     ] = False,
 ):
     """Build and install a specific CPython version."""
+    output = get_output()
     try:
         commit = resolve_ref(ref)
-        console.print(f"Resolved '{ref}' to commit {commit[:7]}")
+        output.info(f"Resolved '{ref}' to commit {commit[:7]}")
 
         build_dir = build_python(commit, enable_jit=jit, verbose=verbose)
 
-        console.print(
-            f"\n[bold green]Successfully built CPython {commit[:7]}[/bold green]"
-        )
-        console.print(f"Location: {build_dir}")
+        output.success(f"\nSuccessfully built CPython {commit[:7]}")
+        output.info(f"Location: {build_dir}")
 
         # Check if JIT was actually enabled (by checking the build directory name)
         actual_jit = build_dir.name.endswith("-jit")
@@ -244,10 +228,10 @@ def install(
             run_example += " --jit"
 
         run_example += " -- python --version"
-        console.print(f"\nRun with: [bold]{run_example}[/bold]")
+        output.info(f"\nRun with: {run_example}")
 
     except subprocess.CalledProcessError as e:
-        console.print(f"[red]Command failed: {e}[/red]")
+        output.error(f"Command failed: {e}")
         raise typer.Exit(1)
 
 
@@ -258,21 +242,22 @@ def run(
     jit: Annotated[bool, typer.Option("--jit", help="Use JIT-enabled build")] = False,
 ):
     """Run a command with a specific Python version."""
+    output = get_output()
     try:
         commit = resolve_ref(ref)
-        build_suffix = "-jit" if jit else ""
-        build_dir = BUILDS_DIR / f"{commit}{build_suffix}"
+        build_info = BuildInfo(commit=commit, jit_enabled=jit)
+        build_dir = build_info.get_path(BUILDS_DIR)
 
         if not build_dir.exists():
-            console.print(
-                f"[yellow]Build for {ref}{build_suffix} not found, building now...[/yellow]"
+            output.warning(
+                f"Build for {ref}{build_info.suffix} not found, building now..."
             )
             build_dir = build_python(commit, enable_jit=jit)
 
         python_bin = build_dir / "bin" / "python3"
 
         if not python_bin.exists():
-            console.print(f"[red]Python binary not found at {python_bin}[/red]")
+            output.error(f"Python binary not found at {python_bin}")
             raise typer.Exit(1)
 
         # If first argument is "python", replace it with the actual binary path
@@ -286,37 +271,33 @@ def run(
         os.execv(str(python_bin), args)
 
     except subprocess.CalledProcessError as e:
-        console.print(f"[red]Command failed: {e}[/red]")
+        output.error(f"Command failed: {e}")
         raise typer.Exit(1)
 
 
 @app.command()
 def list_builds():
     """List locally built Python versions."""
+    output = get_output()
     if not BUILDS_DIR.exists() or not list(BUILDS_DIR.iterdir()):
-        console.print("[yellow]No builds found.[/yellow]")
-        console.print(
-            "Run [bold]every-python install main[/bold] to build the latest version."
-        )
+        output.warning("No builds found.")
+        output.info("Run every-python install main to build the latest version.")
         return
 
     # Get version info for all builds
-    builds_with_version: list[tuple[Path, str, bool]] = []
+    runner = get_runner()
+    builds_with_version: list[tuple[Path, str, BuildInfo]] = []
     for build in BUILDS_DIR.iterdir():
-        is_jit = build.name.endswith("-jit")
+        build_info = BuildInfo.from_directory(build)
         python_bin = build / "bin" / "python3"
 
         if python_bin.exists():
-            result = subprocess.run(
-                [str(python_bin), "--version"],
-                capture_output=True,
-                text=True,
-            )
-            version = result.stdout.strip() if result.returncode == 0 else "unknown"
+            result = runner.run([str(python_bin), "--version"])
+            version = result.stdout.strip() if result.success else "unknown"
         else:
             version = "unknown"
 
-        builds_with_version.append((build, version, is_jit))
+        builds_with_version.append((build, version, build_info))
 
     # Sort by version (descending), then by JIT status (non-JIT first)
     def parse_version(version_str: str) -> tuple[int, int, int, str]:
@@ -342,7 +323,7 @@ def list_builds():
             -parse_version(x[1])[1],
             -parse_version(x[1])[2],
             parse_version(x[1])[3],
-            x[2],
+            x[2].jit_enabled,
         )
     )
 
@@ -356,18 +337,14 @@ def list_builds():
 
     from datetime import datetime
 
-    for build, version, is_jit in builds_with_version:
-        commit = build.name.replace("-jit", "") if is_jit else build.name
-
+    for build, version, build_info in builds_with_version:
         # Get commit timestamp and message
-        commit_info_result = subprocess.run(
-            ["git", "log", "-1", "--format=%at|%s", commit],
-            cwd=REPO_DIR,
-            capture_output=True,
-            text=True,
+        commit_info_result = runner.run_git(
+            ["log", "-1", "--format=%at|%s", build_info.commit],
+            REPO_DIR,
         )
 
-        if commit_info_result.returncode == 0 and commit_info_result.stdout.strip():
+        if commit_info_result.success and commit_info_result.stdout.strip():
             parts = commit_info_result.stdout.strip().split("|", 1)
             commit_timestamp = int(parts[0])
             commit_msg = parts[1] if len(parts) > 1 else ""
@@ -379,12 +356,12 @@ def list_builds():
             commit_msg = ""
 
         if version != "unknown":
-            jit_text = "✓" if is_jit else ""
+            jit_text = "✓" if build_info.jit_enabled else ""
             table.add_row(
                 version.replace("Python ", ""),
                 jit_text,
                 timestamp,
-                commit[:7],
+                build_info.commit[:7],
                 commit_msg,
             )
         else:
@@ -392,7 +369,7 @@ def list_builds():
                 "[red]incomplete[/red]",
                 "",
                 timestamp,
-                commit[:7],
+                build_info.commit[:7],
                 "",
             )
 
@@ -405,35 +382,35 @@ def clean(
     all: Annotated[bool, typer.Option("--all", help="Remove all builds")] = False,
 ):
     """Remove built Python versions to free up space."""
+    output = get_output()
     if all:
         if BUILDS_DIR.exists():
             shutil.rmtree(BUILDS_DIR)
-            console.print("[green]✓ Removed all builds[/green]")
+            output.success("✓ Removed all builds")
         else:
-            console.print("[yellow]No builds to remove[/yellow]")
+            output.warning("No builds to remove")
     elif ref:
         try:
             commit = resolve_ref(ref)
 
             # Check for both JIT and non-JIT builds
             removed: list[str] = []
-            for suffix in ["", "-jit"]:
-                build_dir = BUILDS_DIR / f"{commit}{suffix}"
+            for jit_enabled in [False, True]:
+                build_info = BuildInfo(commit=commit, jit_enabled=jit_enabled)
+                build_dir = build_info.get_path(BUILDS_DIR)
                 if build_dir.exists():
                     shutil.rmtree(build_dir)
-                    removed.append("-jit" if suffix == "-jit" else "non-JIT")
+                    removed.append("JIT" if jit_enabled else "non-JIT")
 
             if removed:
                 variants = " and ".join(removed)
-                console.print(
-                    f"[green]✓ Removed {variants} build(s) for {commit[:7]}[/green]"
-                )
+                output.success(f"✓ Removed {variants} build(s) for {commit[:7]}")
             else:
-                console.print(f"[yellow]No builds found for {commit[:7]}[/yellow]")
+                output.warning(f"No builds found for {commit[:7]}")
         except typer.Exit:
             pass
     else:
-        console.print("[red]Specify a ref to remove or use --all[/red]")
+        output.error("Specify a ref to remove or use --all")
         raise typer.Exit(1)
 
 
@@ -459,37 +436,35 @@ def bisect(
         every-python bisect --good v3.13.0 --bad main --run "python test.py"
     """
     ensure_repo()
+    runner = get_runner()
+    output = get_output()
 
     try:
         # Resolve refs to commits
-        console.print(f"\nResolving good commit: {good}")
+        output.info(f"\nResolving good commit: {good}")
         good_commit = resolve_ref(good)
-        console.print(f"  → {good_commit[:7]}")
+        output.info(f"  → {good_commit[:7]}")
 
-        console.print(f"Resolving bad commit: {bad}")
+        output.info(f"Resolving bad commit: {bad}")
         bad_commit = resolve_ref(bad)
-        console.print(f"  → {bad_commit[:7]}")
+        output.info(f"  → {bad_commit[:7]}")
 
         # Start bisect
-        console.print("\n[bold]Starting git bisect...[/bold]")
+        output.info("\n[bold]Starting git bisect...[/bold]")
 
         # Clean up any previous bisect state
-        subprocess.run(["git", "bisect", "reset"], cwd=REPO_DIR, capture_output=True)
+        runner.run_git(["bisect", "reset"], REPO_DIR)
 
         # Reset any local changes in the repo
-        subprocess.run(["git", "reset", "--hard"], cwd=REPO_DIR, capture_output=True)
-        subprocess.run(["git", "clean", "-fd"], cwd=REPO_DIR, capture_output=True)
+        runner.run_git(["reset", "--hard"], REPO_DIR)
+        runner.run_git(["clean", "-fd"], REPO_DIR)
 
-        subprocess.run(["git", "bisect", "start"], cwd=REPO_DIR, check=True)
-        subprocess.run(["git", "bisect", "bad", bad_commit], cwd=REPO_DIR, check=True)
+        runner.run_git(["bisect", "start"], REPO_DIR, check=True)
+        runner.run_git(["bisect", "bad", bad_commit], REPO_DIR, check=True)
 
         # Capture initial bisect output to show steps remaining
-        initial_result = subprocess.run(
-            ["git", "bisect", "good", good_commit],
-            cwd=REPO_DIR,
-            capture_output=True,
-            text=True,
-            check=True,
+        initial_result = runner.run_git(
+            ["bisect", "good", good_commit], REPO_DIR, check=True
         )
 
         # Extract and display steps remaining from git bisect output
@@ -504,7 +479,7 @@ def bisect(
             if match:
                 revisions = match.group(1)
                 steps = match.group(2)
-                console.print(
+                output.info(
                     f"[dim]Bisecting: {revisions} revisions left to test (roughly {steps} steps)[/dim]"
                 )
 
@@ -520,16 +495,10 @@ def bisect(
         while not is_bisect_done() and iteration_count < max_iterations:
             iteration_count += 1
             # Get current commit being tested
-            result = subprocess.run(
-                ["git", "rev-parse", "HEAD"],
-                cwd=REPO_DIR,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
+            result = runner.run_git(["rev-parse", "HEAD"], REPO_DIR, check=True)
             current_commit = result.stdout.strip()
 
-            console.print(
+            output.status(
                 f"\n[bold cyan]Testing commit {current_commit[:7]}...[/bold cyan]"
             )
 
@@ -540,8 +509,8 @@ def bisect(
 
                 if not python_bin.exists():
                     # Build directory exists but python binary is missing - incomplete build
-                    console.print(
-                        "[yellow]Incomplete build detected, cleaning and rebuilding...[/yellow]"
+                    output.warning(
+                        "Incomplete build detected, cleaning and rebuilding..."
                     )
                     shutil.rmtree(build_dir)
 
@@ -551,68 +520,52 @@ def bisect(
                         python_bin = build_dir / "bin" / "python3"
 
                         if not python_bin.exists():
-                            console.print(
-                                "[red]Build failed after retry, skipping commit (exit 125)[/red]"
+                            output.error(
+                                "Build failed after retry, skipping commit (exit 125)"
                             )
-                            subprocess.run(
-                                ["git", "bisect", "skip"], cwd=REPO_DIR, check=True
-                            )
+                            runner.run_git(["bisect", "skip"], REPO_DIR, check=True)
                             continue
                     except Exception:
-                        console.print(
-                            "[red]Build failed, skipping commit (exit 125)[/red]"
-                        )
-                        subprocess.run(
-                            ["git", "bisect", "skip"], cwd=REPO_DIR, check=True
-                        )
+                        output.error("Build failed, skipping commit (exit 125)")
+                        runner.run_git(["bisect", "skip"], REPO_DIR, check=True)
                         continue
 
                 # Run the test command
-                console.print(f"Running: {run}")
-                test_result = subprocess.run(
+                output.info(f"Running: {run}")
+                # Note: using subprocess directly here since we need shell=True
+                test_result_raw = subprocess.run(
                     run,
                     shell=True,
                     cwd=Path.cwd(),
                     env={**os.environ, "PYTHON": str(python_bin)},
                 )
+                test_result = CommandResult(
+                    returncode=test_result_raw.returncode,
+                    stdout="",
+                    stderr="",
+                )
 
                 # Handle exit codes like every-ts
                 if test_result.returncode == 0:
-                    console.print(
-                        "[green]✓ Test passed (exit 0) - marking as good[/green]"
-                    )
-                    bisect_result = subprocess.run(
-                        ["git", "bisect", "good"],
-                        cwd=REPO_DIR,
-                        capture_output=True,
-                        text=True,
-                        check=True,
+                    output.success("✓ Test passed (exit 0) - marking as good")
+                    bisect_result = runner.run_git(
+                        ["bisect", "good"], REPO_DIR, check=True
                     )
                 elif test_result.returncode == 125:
-                    console.print(
-                        "[yellow]Test requested skip (exit 125) - skipping commit[/yellow]"
-                    )
-                    bisect_result = subprocess.run(
-                        ["git", "bisect", "skip"],
-                        cwd=REPO_DIR,
-                        capture_output=True,
-                        text=True,
-                        check=True,
+                    output.warning("Test requested skip (exit 125) - skipping commit")
+                    bisect_result = runner.run_git(
+                        ["bisect", "skip"], REPO_DIR, check=True
                     )
                 elif 1 <= test_result.returncode < 128:
-                    console.print(
-                        f"[red]✗ Test failed (exit {test_result.returncode}) - marking as bad[/red]"
+                    output.error(
+                        f"✗ Test failed (exit {test_result.returncode}) - marking as bad"
                     )
-                    bisect_result = subprocess.run(
-                        ["git", "bisect", "bad"],
-                        cwd=REPO_DIR,
-                        capture_output=True,
-                        text=True,
-                        check=True,
+                    bisect_result = runner.run_git(
+                        ["bisect", "bad"], REPO_DIR, check=True
                     )
                 else:
-                    console.print(
-                        f"[red]Test exited with code {test_result.returncode} >= 128[/red]"
+                    output.error(
+                        f"Test exited with code {test_result.returncode} >= 128"
                     )
                     raise typer.Exit(1)
 
@@ -631,52 +584,44 @@ def bisect(
                     if match:
                         revisions = match.group(1)
                         steps = match.group(2)
-                        console.print(
+                        output.info(
                             f"[dim]→ {revisions} revisions left (roughly {steps} steps)[/dim]"
                         )
 
             except Exception as e:
-                console.print(f"[red]Error during bisect: {e}[/red]")
-                console.print("Skipping commit...")
-                subprocess.run(["git", "bisect", "skip"], cwd=REPO_DIR, check=True)
+                output.error(f"Error during bisect: {e}")
+                output.info("Skipping commit...")
+                runner.run_git(["bisect", "skip"], REPO_DIR, check=True)
 
         # Show final result
-        result = subprocess.run(
-            ["git", "bisect", "log"],
-            cwd=REPO_DIR,
-            capture_output=True,
-            text=True,
-        )
+        result = runner.run_git(["bisect", "log"], REPO_DIR)
 
-        console.print("\n[bold green]Bisect complete![/bold green]")
+        output.success("\n[bold green]Bisect complete![/bold green]")
         # Extract and show the first bad commit from the log
         for line in result.stdout.splitlines():
             if line.startswith("# first bad commit:"):
                 commit_hash = (
                     line.split("[")[1].split("]")[0] if "[" in line else "unknown"
                 )
-                console.print(f"\nFirst bad commit: [bold]{commit_hash}[/bold]")
+                output.info(f"\nFirst bad commit: [bold]{commit_hash}[/bold]")
 
                 # Show commit details
-                commit_result = subprocess.run(
+                commit_result = runner.run_git(
                     [
-                        "git",
                         "show",
                         "--no-patch",
                         "--format=%H%n%an <%ae>%n%ad%n%s",
                         commit_hash,
                     ],
-                    cwd=REPO_DIR,
-                    capture_output=True,
-                    text=True,
+                    REPO_DIR,
                 )
-                if commit_result.returncode == 0:
-                    console.print(commit_result.stdout)
+                if commit_result.success:
+                    output.info(commit_result.stdout)
                 break
 
     except subprocess.CalledProcessError as e:
-        console.print(f"[red]Bisect failed: {e}[/red]")
+        output.error(f"Bisect failed: {e}")
         raise typer.Exit(1)
     finally:
         # Clean up bisect state
-        subprocess.run(["git", "bisect", "reset"], cwd=REPO_DIR, capture_output=True)
+        runner.run_git(["bisect", "reset"], REPO_DIR)
