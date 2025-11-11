@@ -1,4 +1,5 @@
 import os
+import platform
 import shutil
 import subprocess
 from pathlib import Path
@@ -13,6 +14,7 @@ from every_python.output import get_output
 from every_python.runner import CommandResult, CommandRunner, get_runner
 from every_python.utils import (
     BuildInfo,
+    python_binary_location,
     check_llvm_available,
     get_llvm_version_for_commit,
 )
@@ -96,7 +98,16 @@ def build_python(commit: str, enable_jit: bool = False, verbose: bool = False) -
             enable_jit = False
         elif not check_llvm_available(llvm_version):
             output.warning(f"Warning: LLVM {llvm_version} not found")
-            output.info(f"Install with: brew install llvm@{llvm_version}")
+            if platform.system() == "Darwin":
+                output.info(f"Install with: brew install llvm@{llvm_version}")
+            elif platform.system() == "Linux":
+                output.info(
+                    f"Install with: apt install llvm-{llvm_version} clang-{llvm_version} lld-{llvm_version}"
+                )
+            else:  # Windows
+                output.info(
+                    f"Install LLVM {llvm_version} from https://github.com/llvm/llvm-project/releases"
+                )
             if not typer.confirm("Continue building without JIT?", default=True):
                 raise typer.Exit(0)
             enable_jit = False
@@ -129,12 +140,22 @@ def build_python(commit: str, enable_jit: bool = False, verbose: bool = False) -
 
         # Configure
         progress.update(task, description="Configuring build...")
-        configure_args = ["./configure", "--prefix", str(build_dir), "--with-pydebug"]
 
-        # Add JIT flag if enabled
-        if enable_jit:
-            configure_args.append("--enable-experimental-jit")
+        if platform.system() == "Windows":
+            configure_args = ["PCbuild\\build.bat", "-c", "Debug"]
+            if enable_jit:
+                configure_args.append("--experimental-jit")
+        else:
+            configure_args = [
+                "./configure",
+                "--prefix",
+                str(build_dir),
+                "--with-pydebug",
+            ]
 
+            # Add JIT flag if enabled
+            if enable_jit:
+                configure_args.append("--experimental-jit")
         if verbose:
             progress.stop()
             output.status(f"Running: {' '.join(configure_args)}")
@@ -153,43 +174,62 @@ def build_python(commit: str, enable_jit: bool = False, verbose: bool = False) -
             )
             raise typer.Exit(1)
 
-        # Build
+        # Build and install
         import multiprocessing
 
         ncpu = multiprocessing.cpu_count()
 
-        if verbose:
-            output.status(f"Building with {ncpu} cores (this may a few minutes)...")
-            output.status(f"Running: make -j{ncpu}")
+        if platform.system() == "Windows":
+            # Windows: build.bat does both build and "install" (outputs to PCbuild/amd64)
+            # The configure step above already ran build.bat, so we're done
+            # Just move the output to our build directory
+            progress.update(task, description="Copying build artifacts...")
+            import shutil
+
+            pcbuild_dir = REPO_DIR / "PCbuild" / "amd64"
+            if not pcbuild_dir.exists():
+                progress.stop()
+                output.error(f"Build output not found at {pcbuild_dir}")
+                raise typer.Exit(1)
+
+            build_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(pcbuild_dir, build_dir, dirs_exist_ok=True)
         else:
-            progress.update(
-                task,
-                description=f"Building with {ncpu} cores (this may a few minutes)...",
+            # Unix: use make
+            if verbose:
+                output.status(f"Building with {ncpu} cores (this may a few minutes)...")
+                output.status(f"Running: make -j{ncpu}")
+            else:
+                progress.update(
+                    task,
+                    description=f"Building with {ncpu} cores (this may a few minutes)...",
+                )
+
+            make_result = runner.run(
+                ["make", f"-j{ncpu}"],
+                cwd=REPO_DIR,
+                capture_output=not verbose,
             )
 
-        make_result = runner.run(
-            ["make", f"-j{ncpu}"],
-            cwd=REPO_DIR,
-            capture_output=not verbose,
-        )
+            if not make_result.success:
+                if not verbose:
+                    progress.stop()
+                output.error(
+                    f"Build failed: {make_result.stderr if not verbose else ''}"
+                )
+                raise typer.Exit(1)
 
-        if not make_result.success:
-            if not verbose:
+            # Install to prefix
+            progress.update(task, description="Installing...")
+            install_result: CommandResult = runner.run(
+                ["make", "install"],
+                cwd=REPO_DIR,
+            )
+
+            if not install_result.success:
                 progress.stop()
-            output.error(f"Build failed: {make_result.stderr if not verbose else ''}")
-            raise typer.Exit(1)
-
-        # Install to prefix
-        progress.update(task, description="Installing...")
-        install_result: CommandResult = runner.run(
-            ["make", "install"],
-            cwd=REPO_DIR,
-        )
-
-        if not install_result.success:
-            progress.stop()
-            output.error(f"Install failed: {install_result.stderr}")
-            raise typer.Exit(1)
+                output.error(f"Install failed: {install_result.stderr}")
+                raise typer.Exit(1)
 
         progress.update(task, description=f"[green]✓ Built {commit[:7]}[/green]")
 
@@ -254,7 +294,7 @@ def run(
             )
             build_dir = build_python(commit, enable_jit=jit)
 
-        python_bin = build_dir / "bin" / "python3"
+        python_bin = python_binary_location(BUILDS_DIR, build_info)
 
         if not python_bin.exists():
             output.error(f"Python binary not found at {python_bin}")

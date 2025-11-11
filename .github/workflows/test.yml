@@ -4,20 +4,45 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'every-python/**'
+      - 'every_python/**'
+      - 'tests/**'
+      - 'pyproject.toml'
       - '.github/workflows/test.yml'
   pull_request:
     branches: [ main ]
     paths:
-      - 'every-python/**'
+      - 'every_python/**'
+      - 'tests/**'
+      - 'pyproject.toml'
       - '.github/workflows/test.yml'
 
 jobs:
   test:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          # x86_64-unknown-linux-gnu/gcc
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            toolchain: gcc
+          # aarch64-unknown-linux-gnu/gcc
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            toolchain: gcc
+          # x86_64-pc-windows-msvc/msvc
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            toolchain: msvc
+          # x86_64-apple-darwin/clang
+          - os: macos-13
+            target: x86_64-apple-darwin
+            toolchain: clang
+          # aarch64-apple-darwin/clang
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            toolchain: clang
     steps:
       - uses: actions/checkout@v5
 
@@ -25,10 +50,27 @@ jobs:
         uses: actions/setup-python@v6
         with:
             python-version: "3.13"
+            architecture: ${{ contains(matrix.target, 'aarch64') && 'arm64' || 'x64' }}
 
-      - name: Install system dependencies (Linux only)
+      - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y lsof
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lsof
+          # Install LLVM for JIT testing using official script
+          sudo bash -c "$(wget -O - https://apt.llvm.org/llvm.sh)" ./llvm.sh 20
+          # Add LLVM tools to PATH
+          echo "$(llvm-config-20 --bindir)" >> $GITHUB_PATH
+
+      - name: Install LLVM (macOS)
+        if: runner.os == 'macOS'
+        run: brew install llvm@20
+
+      - name: Install LLVM (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install llvm --version=20.0.0 -y
+          echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7

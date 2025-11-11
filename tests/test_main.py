@@ -165,14 +165,14 @@ class TestBuildPython:
             # Should create JIT build directory
             assert build_dir.name == "abc123d-jit"
 
-            # Should pass --enable-experimental-jit to configure
+            # Should pass --experimental-jit to configure
             configure_calls = [
                 call_args
                 for call_args in mock_runner.run.call_args_list
                 if "./configure" in str(call_args)
             ]
             assert len(configure_calls) > 0
-            assert "--enable-experimental-jit" in str(configure_calls[0])
+            assert "--experimental-jit" in str(configure_calls[0])
 
     def test_build_with_jit_llvm_missing(self, tmp_path: Path):
         """Test building with JIT when LLVM is missing falls back to non-JIT."""

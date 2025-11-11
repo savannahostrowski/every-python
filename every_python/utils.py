@@ -1,3 +1,4 @@
+import platform
 import re
 import subprocess
 from dataclasses import dataclass
@@ -52,12 +53,48 @@ def _check_tool_available(tool: str, version: str) -> bool:
     if _check_tool_version(tool, version):
         return True
 
-    # Try Homebrew installation (checks both llvm@{version} and llvm)
-    brew_tool = _get_homebrew_llvm_tool(tool, version)
-    if brew_tool and _check_tool_version(brew_tool, version):
-        return True
+    # Platform-specific checks
+    if platform.system() == "Darwin":
+        # macOS: Try Homebrew installation
+        brew_tool = _get_homebrew_llvm_tool(tool, version)
+        if brew_tool and _check_tool_version(brew_tool, version):
+            return True
+    elif platform.system() == "Windows":
+        # Windows: Check Program Files
+        windows_tool = _get_windows_llvm_tool(tool, version)
+        if windows_tool and _check_tool_version(windows_tool, version):
+            return True
 
     return False
+
+
+def _get_windows_llvm_tool(tool: str, version: str) -> str | None:
+    """Get the path to an LLVM tool from Windows installation."""
+    # Common Windows LLVM installation paths
+    program_files = Path("C:/Program Files")
+    program_files_x86 = Path("C:/Program Files (x86)")
+
+    possible_paths = [
+        program_files / f"LLVM-{version}" / "bin" / f"{tool}.exe",
+        program_files / "LLVM" / "bin" / f"{tool}.exe",
+        program_files_x86 / f"LLVM-{version}" / "bin" / f"{tool}.exe",
+        program_files_x86 / "LLVM" / "bin" / f"{tool}.exe",
+    ]
+
+    for tool_path in possible_paths:
+        if tool_path.exists():
+            try:
+                result = subprocess.run(
+                    [str(tool_path), "--version"],
+                    capture_output=True,
+                    timeout=5,
+                )
+                if result.returncode == 0:
+                    return str(tool_path)
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+
+    return None
 
 
 def _get_homebrew_llvm_tool(tool: str, version: str | None = None) -> str | None:
@@ -144,6 +181,14 @@ def _check_tool_version(tool_name: str, expected_version: str) -> bool:
         subprocess.TimeoutExpired,
     ):
         return False
+
+
+def python_binary_location(builds_dir: Path, build_info: "BuildInfo") -> Path:
+    """Get the path to the Python binary for a given build."""
+    if platform.system() == "Windows":
+        return builds_dir / build_info.directory_name / "python.exe"
+    else:
+        return builds_dir / build_info.directory_name / "bin" / "python3"
 
 
 @dataclass
