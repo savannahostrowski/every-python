@@ -1,7 +1,13 @@
 name: Integration Tests
 
 on:
+  workflow_dispatch:
   push:
+    branches: [ main ]
+    paths:
+      - 'every_python/**'
+      - '.github/workflows/integration.yml'
+  pull_request:
     branches: [ main ]
     paths:
       - 'every_python/**'
