@@ -77,4 +77,4 @@ jobs:
         run: uv run every-python install main --jit --verbose
 
       - name: Verify JIT build works
-        run: uv run every-python run main -- --version
+        run: uv run every-python run main -- --jit --version
