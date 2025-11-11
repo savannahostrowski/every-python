@@ -178,10 +178,14 @@ class TestCheckToolAvailable:
 
         assert result is True
 
+    @patch("platform.system")
     @patch("every_python.utils._get_homebrew_llvm_tool")
     @patch("every_python.utils._check_tool_version")
-    def test_homebrew_tool_available(self, mock_check_version, mock_homebrew_tool):
-        """Test finding tool via Homebrew."""
+    def test_homebrew_tool_available(
+        self, mock_check_version, mock_homebrew_tool, mock_platform
+    ):
+        """Test finding tool via Homebrew on macOS."""
+        mock_platform.return_value = "Darwin"  # Simulate macOS
         mock_check_version.return_value = False  # Not in PATH
         mock_homebrew_tool.return_value = "/opt/homebrew/opt/llvm@20/bin/clang"
 
