@@ -69,7 +69,9 @@ jobs:
         run: uv run every-python run v3.13.0 -- --version
 
       - name: Test build with JIT
-        run: uv run every-python install v3.13.0 --jit --verbose
+        # Use commit that I know has JIT support with LLVM 20
+        run: uv run every-python install 42d014086098d3d70cacb4d8993f04cace120c12 --jit --verbose
 
       - name: Verify JIT build works
-        run: uv run every-python run v3.13.0 --jit -- --version
+       # Use commit that I know has JIT support with LLVM 20
+        run: uv run every-python run 42d014086098d3d70cacb4d8993f04cace120c12 --jit -- --version

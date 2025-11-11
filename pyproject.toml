@@ -7,7 +7,7 @@ authors = [
     { name = "Savannah Ostrowski", email = "savannah@python.org" }
 ]
 license = { text = "MIT" }
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
     "typer>=0.20.0",
     "rich>=13.0.0",
@@ -67,4 +67,4 @@ select = ["I"]  # Enable isort rules for import sorting
 [tool.pyright]
 include = ["every_python"]
 typeCheckingMode = "strict"
-pythonVersion = "3.13"
+pythonVersion = "3.14"

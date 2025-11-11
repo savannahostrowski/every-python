@@ -1,13 +1,14 @@
-from datetime import datetime
 import multiprocessing
 import os
 import platform
 import shutil
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
 import typer
 from rich.console import Console
+from rich.progress import Progress, TaskID
 from rich.table import Table
 from typing_extensions import Annotated
 
@@ -16,9 +17,9 @@ from every_python.runner import CommandResult, CommandRunner, get_runner
 from every_python.utils import (
     BuildInfo,
     BuildVersion,
-    python_binary_location,
     check_llvm_available,
     get_llvm_version_for_commit,
+    python_binary_location,
 )
 
 app = typer.Typer()
@@ -139,8 +140,8 @@ def _run_configure(
     build_dir: Path,
     enable_jit: bool,
     verbose: bool,
-    progress,
-    task,
+    progress: Progress,
+    task: TaskID,
 ) -> None:
     """Run the configure step."""
     output = get_output()
@@ -161,7 +162,9 @@ def _run_configure(
         raise typer.Exit(1)
 
 
-def _build_and_install_windows(build_dir: Path, verbose: bool, progress, task) -> None:
+def _build_and_install_windows(
+    build_dir: Path, verbose: bool, progress: Progress, task: TaskID
+) -> None:
     """Build and install on Windows by copying PCbuild output."""
     output = get_output()
     progress.update(task, description="Copying build artifacts...")
@@ -185,7 +188,7 @@ def _build_and_install_windows(build_dir: Path, verbose: bool, progress, task) -
 
 
 def _build_and_install_unix(
-    runner: CommandRunner, verbose: bool, progress, task
+    runner: CommandRunner, verbose: bool, progress: Progress, task: TaskID
 ) -> None:
     """Build and install on Unix systems using make."""
     output = get_output()
@@ -408,10 +411,12 @@ def list_builds():
     result = runner.run_git(
         ["log", "--format=%H|%at|%s", "--no-walk"] + commits, repo_dir=REPO_DIR
     )
-    commit_info = {}
+    commit_info: dict[str, tuple[int, str]] = {}
     for line in result.stdout.strip().split("\n"):
-        hash, timestamp, msg = line.split("|", 2)
-        commit_info[hash] = (int(timestamp), msg)
+        parts = line.split("|", 2)
+        if len(parts) == 3:
+            hash_val, timestamp_str, msg_val = parts
+            commit_info[hash_val] = (int(timestamp_str), msg_val)
 
     for bv in build_versions:
         if bv.build_info.commit in commit_info:
