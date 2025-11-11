@@ -176,19 +176,27 @@ def build_python(commit: str, enable_jit: bool = False, verbose: bool = False) -
         ncpu = multiprocessing.cpu_count()
 
         if platform.system() == "Windows":
-            # Windows: build.bat does both build and "install" (outputs to PCbuild/amd64)
+            # Windows: build.bat does both build and "install" (outputs to PCbuild/amd64 or PCbuild/win32)
             # The configure step above already ran build.bat, so we're done
-            # Just move the output to our build directory
+            # Just copy the output to our build directory
             progress.update(task, description="Copying build artifacts...")
             import shutil
 
+            # Try both amd64 and win32 architectures
             pcbuild_dir = REPO_DIR / "PCbuild" / "amd64"
             if not pcbuild_dir.exists():
+                pcbuild_dir = REPO_DIR / "PCbuild" / "win32"
+
+            if not pcbuild_dir.exists():
                 progress.stop()
-                output.error(f"Build output not found at {pcbuild_dir}")
+                output.error("Build output not found in PCbuild directory")
                 raise typer.Exit(1)
 
             build_dir.mkdir(parents=True, exist_ok=True)
+
+            if verbose:
+                output.status(f"Copying from {pcbuild_dir} to {build_dir}")
+
             shutil.copytree(pcbuild_dir, build_dir, dirs_exist_ok=True)
         else:
             # Unix: use make
