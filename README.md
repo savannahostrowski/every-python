@@ -24,7 +24,6 @@ Building CPython from source is time-consuming. `every-python` makes it easy to:
 ## Installation
 
 ```bash
-# From PyPI (once published)
 uv tool install every-python
 # or
 pipx install every-python
