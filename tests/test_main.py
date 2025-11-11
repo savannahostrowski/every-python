@@ -6,9 +6,9 @@ import pytest
 from typer.testing import CliRunner
 
 from every_python.main import (
-    app,
     _ensure_repo,
     _resolve_ref,
+    app,
 )
 from every_python.output import set_output
 from every_python.runner import set_runner
@@ -329,7 +329,7 @@ class TestBisectCommand:
 
         builds_dir = tmp_path / "builds"
 
-        def resolve_side_effect(ref):
+        def resolve_side_effect(ref: str) -> str:
             if ref == "good-ref":
                 return "abc123d"
             elif ref == "bad-ref":
