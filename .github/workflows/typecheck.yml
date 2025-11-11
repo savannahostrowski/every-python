@@ -4,14 +4,16 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'every-python/**/*.py'
-      - 'every-python/pyproject.toml'
+      - 'every_python/**'
+      - 'tests/**'
+      - 'pyproject.toml'
       - '.github/workflows/typecheck.yml'
   pull_request:
     branches: [ main ]
     paths:
-      - 'every-python/**/*.py'
-      - 'every-python/pyproject.toml'
+      - 'every_python/**'
+      - 'tests/**'
+      - 'pyproject.toml'
       - '.github/workflows/typecheck.yml'
 
 jobs:

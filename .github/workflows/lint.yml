@@ -4,12 +4,14 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'every-python/**/*.py'
+      - 'every_python/**'
+      - 'tests/**'
       - '.github/workflows/lint.yml'
   pull_request:
     branches: [ main ]
     paths:
-      - 'every-python/**/*.py'
+      - 'every_python/**'
+      - 'tests/**'
       - '.github/workflows/lint.yml'
 
 jobs:
@@ -32,7 +34,7 @@ jobs:
         run: uv sync
 
       - name: Run Ruff linter
-        run: uv run ruff check every-python/
+        run: uv run ruff check every_python/
 
       - name: Run Ruff formatter
-        run: uv run ruff format --check every-python/
+        run: uv run ruff format --check every_python/
