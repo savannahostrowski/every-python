@@ -130,6 +130,7 @@ class TestBuildPython:
         with (
             patch("every_python.main.REPO_DIR", repo_dir),
             patch("every_python.main.BUILDS_DIR", builds_dir),
+            patch("platform.system", return_value="Linux"),
         ):
             build_dir = build_python("abc123d", enable_jit=False)
 
@@ -246,6 +247,7 @@ class TestBuildPython:
         with (
             patch("every_python.main.REPO_DIR", repo_dir),
             patch("every_python.main.BUILDS_DIR", builds_dir),
+            patch("platform.system", return_value="Linux"),
         ):
             build_dir = build_python("abc123d", enable_jit=False)
 
@@ -310,10 +312,12 @@ class TestRunCommand:
 
     @patch("os.execv")
     @patch("every_python.main.resolve_ref")
+    @patch("platform.system")
     def test_run_existing_build(
-        self, mock_resolve: Mock, mock_execv: Mock, tmp_path: Path
+        self, mock_platform: Mock, mock_resolve: Mock, mock_execv: Mock, tmp_path: Path
     ):
         """Test running with existing build."""
+        mock_platform.return_value = "Linux"  # Force Unix behavior
         mock_resolve.return_value = "abc123def456"
 
         builds_dir = tmp_path / "builds"

@@ -47,16 +47,14 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-            python-version: "3.11"
+            python-version: "3.14"
 
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y lsof
-          # Install LLVM for JIT testing using official script
           sudo bash -c "$(wget -O - https://apt.llvm.org/llvm.sh)" ./llvm.sh 20
-          # Add LLVM tools to PATH
           echo "$(llvm-config-20 --bindir)" >> $GITHUB_PATH
 
       - name: Install LLVM (macOS)
@@ -66,8 +64,7 @@ jobs:
       - name: Install LLVM (Windows)
         if: runner.os == 'Windows'
         run: |
-          # Install LLVM if not already present, or upgrade to latest
-          choco upgrade llvm -y --allow-downgrade
+          choco install llvm --version=20.1.8 -y --force
           echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Install uv
