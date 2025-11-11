@@ -12,7 +12,7 @@ dependencies = [
     "typer>=0.20.0",
     "rich>=13.0.0",
 ]
-keywords = ["ports", "processes", "tui"]
+keywords = ["cpython", "python", "build", "testing", "bisect"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
