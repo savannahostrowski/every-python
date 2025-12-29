@@ -192,7 +192,11 @@ def python_binary_location(builds_dir: Path, build_info: "BuildInfo") -> Path:
             return debug_binary
         return builds_dir / build_info.directory_name / "python.exe"
     else:
-        return builds_dir / build_info.directory_name / "bin" / "python3"
+        binary = builds_dir / build_info.directory_name / "bin" / "python3"
+        fallback_binary = builds_dir / build_info.directory_name / "bin" / "python3.0"
+        if not binary.exists() and fallback_binary.exists():
+            return fallback_binary
+        return binary
 
 
 @dataclass
