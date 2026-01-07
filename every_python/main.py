@@ -213,7 +213,9 @@ def _build_and_install_unix(
     if not make_result.success:
         if not verbose:
             progress.stop()
-        output.error(f"Build failed: {make_result.stderr if not verbose else ''}")
+            output.error(f"Build failed: {make_result.stderr}")
+        else:
+            output.error("Build failed!")
         raise typer.Exit(1)
 
     # Install
