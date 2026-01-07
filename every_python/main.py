@@ -135,6 +135,33 @@ def _get_configure_args(build_dir: Path, enable_jit: bool) -> list[str]:
     return args
 
 
+def _run_clean_repo(
+    runner: CommandRunner,
+    verbose: bool,
+    progress: Progress,
+    task: TaskID,
+) -> None:
+    """Run the clean repo step."""
+    output = get_output()
+    args = ["clean", "-fdx"]
+
+    if verbose:
+        progress.stop()
+        output.status(f"Running: git {' '.join(args)}")
+    else:
+        progress.update(task, description="Cleaning repo...")
+
+    result = runner.run_git(args, repo_dir=REPO_DIR)
+
+    if not result.success:
+        if not verbose:
+            progress.stop()
+            output.error(f"Cleaning repo failed: {result.stderr}")
+        else:
+            output.error("Cleaning repo failed!")
+        raise typer.Exit(1)
+
+
 def _run_configure(
     runner: CommandRunner,
     build_dir: Path,
@@ -266,6 +293,9 @@ def build_python(commit: str, enable_jit: bool = False, verbose: bool = False) -
             progress.stop()
             output.error(f"Failed to checkout {commit}: {result.stderr}")
             raise typer.Exit(1)
+
+        # Clean repo
+        _run_clean_repo(runner, verbose, progress, task)
 
         # Configure
         _run_configure(runner, build_dir, enable_jit, verbose, progress, task)
@@ -531,7 +561,7 @@ def bisect(
 
         # Reset any local changes in the repo
         runner.run_git(["reset", "--hard"], REPO_DIR)
-        runner.run_git(["clean", "-fd"], REPO_DIR)
+        runner.run_git(["clean", "-fdx"], REPO_DIR)
 
         runner.run_git(["bisect", "start"], REPO_DIR, check=True)
         runner.run_git(["bisect", "bad", bad_commit], REPO_DIR, check=True)
