@@ -158,7 +158,9 @@ def _run_configure(
     if not result.success:
         if not verbose:
             progress.stop()
-        output.error(f"Configure failed: {result.stderr if not verbose else ''}")
+            output.error(f"Configure failed: {result.stderr}")
+        else:
+            output.error("Configure failed")
         raise typer.Exit(1)
 
 

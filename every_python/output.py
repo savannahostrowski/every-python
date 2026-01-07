@@ -3,6 +3,7 @@
 import os
 import sys
 from abc import ABC, abstractmethod
+
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
