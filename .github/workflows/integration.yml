@@ -78,6 +78,4 @@ jobs:
 
       - name: Verify consecutive builds work
         # Use two versions that can only be built if repo cleanup between works
-        run: |
-          uv run every-python install v3.12.0 
-          uv run every-python install v3.11.0
+        run: uv run every-python install v3.14.0 && uv run every-python install v3.13.0
