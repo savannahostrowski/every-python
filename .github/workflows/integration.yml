@@ -45,6 +45,10 @@ jobs:
       - name: Install LLVM (macOS)
         if: runner.os == 'macOS'
         run: brew install llvm@21
+
+      - name: Install LLVM (Windows)
+        if: runner.os == 'Windows'
+        run: choco install llvm --version=21.1.7
       
       - name: Install uv
         uses: astral-sh/setup-uv@v7
