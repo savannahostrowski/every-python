@@ -11,6 +11,7 @@ requires-python = ">=3.11"
 dependencies = [
     "typer>=0.20.0",
     "rich>=13.0.0",
+    "typing-extensions>=4.1.0",
 ]
 keywords = ["cpython", "python", "build", "testing", "bisect"]
 classifiers = [
@@ -29,7 +30,7 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/savannahostrowski/every-python"
 Repository = "https://github.com/savannahostrowski/every-python"
-Issues = "https://github.com/savannahostrowski/gruyere/issues"
+Issues = "https://github.com/savannahostrowski/every-python/issues"
 
 [project.scripts]
 every-python = "every_python.main:app"
