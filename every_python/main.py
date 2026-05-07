@@ -408,7 +408,7 @@ def install(
         bool, typer.Option("--jit", help="Enable experimental JIT compiler")
     ] = False,
     pgo: Annotated[
-        bool, typer.Option("--pgo", help="Enable PGO build")
+        bool, typer.Option("--pgo", help="Enable optimized build (PGO + LTO)")
     ] = False,
     nogil: Annotated[
         bool, typer.Option("--nogil", help="Build with GIL disabled")
@@ -458,7 +458,7 @@ def run(
     ref: Annotated[str, typer.Argument(help="Git ref to use")],
     command: Annotated[list[str], typer.Argument(help="Command to execute")],
     jit: Annotated[bool, typer.Option("--jit", help="Use JIT-enabled build")] = False,
-    pgo: Annotated[bool, typer.Option("--pgo", help="Enable PGO build")] = False,
+    pgo: Annotated[bool, typer.Option("--pgo", help="Enable optimized build (PGO + LTO)")] = False,
     nogil: Annotated[
         bool, typer.Option("--nogil", help="Use free-threaded build")
     ] = False,
@@ -635,7 +635,7 @@ def bisect(
         bool, typer.Option("--jit", help="Enable experimental JIT compiler")
     ] = False,
     pgo: Annotated[
-        bool, typer.Option("--pgo", help="Enable PGO build")
+        bool, typer.Option("--pgo", help="Enable optimized build (PGO + LTO)")
     ] = False,
     nogil: Annotated[
         bool, typer.Option("--nogil", help="Build with GIL disabled")
