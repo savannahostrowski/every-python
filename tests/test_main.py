@@ -7,6 +7,7 @@ from typer.testing import CliRunner
 
 from every_python.main import (
     _ensure_repo,
+    _get_configure_args,
     _resolve_ref,
     app,
 )
@@ -120,7 +121,7 @@ class TestInstallCommand:
         assert "abc123d" in result.stdout
         mock_resolve.assert_called_once_with("main")
         mock_build.assert_called_once_with(
-            "abc123def456", enable_jit=False, verbose=False
+            "abc123def456", enable_jit=False, verbose=False, enable_pgo=False, enable_nogil=False
         )
 
     @patch("every_python.main.build_python")
@@ -136,7 +137,43 @@ class TestInstallCommand:
 
         assert result.exit_code == 0
         mock_build.assert_called_once_with(
-            "abc123def456", enable_jit=True, verbose=False
+            "abc123def456", enable_jit=True, verbose=False, enable_pgo=False, enable_nogil=False
+        )
+
+    @patch("every_python.main.build_python")
+    @patch("every_python.main._resolve_ref")
+    def test_install_with_pgo(
+        self, mock_resolve: Mock, mock_build: Mock, tmp_path: Path
+    ):
+        """Test installing with PGO flag."""
+        mock_resolve.return_value = "abc123def456"
+        mock_build.return_value = tmp_path / "abc123def456-pgo"
+
+        result = runner.invoke(app, ["install", "main", "--pgo"])
+
+        assert result.exit_code == 0
+        mock_build.assert_called_once_with(
+            "abc123def456", enable_jit=False, verbose=False, enable_pgo=True, enable_nogil=False
+        )
+
+    @patch("every_python.main.build_python")
+    @patch("every_python.main._resolve_ref")
+    def test_install_with_nogil(
+        self, mock_resolve: Mock, mock_build: Mock, tmp_path: Path
+    ):
+        """Test installing with nogil flag."""
+        mock_resolve.return_value = "abc123def456"
+        mock_build.return_value = tmp_path / "abc123def456-nogil"
+
+        result = runner.invoke(app, ["install", "main", "--nogil"])
+
+        assert result.exit_code == 0
+        mock_build.assert_called_once_with(
+            "abc123def456",
+            enable_jit=False,
+            verbose=False,
+            enable_pgo=False,
+            enable_nogil=True,
         )
 
     @patch("every_python.main.build_python")
@@ -152,7 +189,7 @@ class TestInstallCommand:
 
         assert result.exit_code == 0
         mock_build.assert_called_once_with(
-            "abc123def456", enable_jit=False, verbose=True
+            "abc123def456", enable_jit=False, verbose=True, enable_pgo=False, enable_nogil=False
         )
 
 
@@ -212,7 +249,9 @@ class TestRunCommand:
             runner.invoke(app, ["run", "main", "--", "python", "--version"])
 
             # Should build the version
-            mock_build.assert_called_once_with("abc123def456", enable_jit=False)
+            mock_build.assert_called_once_with(
+                "abc123def456", enable_jit=False, enable_pgo=False, enable_nogil=False
+            )
 
 
 class TestListBuildsCommand:
@@ -415,3 +454,49 @@ class TestBisectCommand:
 
             # Should complete successfully
             assert "Bisect complete" in result.stdout or result.exit_code == 0
+
+
+class TestGetConfigureArgs:
+    """Test that build flags map to the correct configure arguments."""
+
+    @patch("platform.system", return_value="Linux")
+    def test_no_flags(self, _mock_platform: Mock):
+        args = _get_configure_args(Path("/tmp/build"), frozenset())
+        assert "--enable-experimental-jit" not in args
+        assert "--enable-optimizations" not in args
+        assert "--disable-gil" not in args
+
+    @patch("platform.system", return_value="Linux")
+    def test_jit_flag_unix(self, _mock_platform: Mock):
+        args = _get_configure_args(Path("/tmp/build"), frozenset({"jit"}))
+        assert "--enable-experimental-jit" in args
+
+    @patch("platform.system", return_value="Linux")
+    def test_pgo_flag_unix(self, _mock_platform: Mock):
+        args = _get_configure_args(Path("/tmp/build"), frozenset({"pgo"}))
+        assert "--enable-optimizations" in args
+
+    @patch("platform.system", return_value="Linux")
+    def test_nogil_flag_unix(self, _mock_platform: Mock):
+        args = _get_configure_args(Path("/tmp/build"), frozenset({"nogil"}))
+        assert "--disable-gil" in args
+
+    @patch("platform.system", return_value="Windows")
+    def test_nogil_flag_windows(self, _mock_platform: Mock):
+        args = _get_configure_args(Path("/tmp/build"), frozenset({"nogil"}))
+        assert "--disable-gil" in args
+
+    @patch("platform.system", return_value="Windows")
+    def test_pgo_flag_windows_uses_pgo_not_optimizations(self, _mock_platform: Mock):
+        args = _get_configure_args(Path("/tmp/build"), frozenset({"pgo"}))
+        assert "--pgo" in args
+        assert "--enable-optimizations" not in args
+
+    @patch("platform.system", return_value="Linux")
+    def test_all_flags_unix(self, _mock_platform: Mock):
+        args = _get_configure_args(
+            Path("/tmp/build"), frozenset({"jit", "pgo", "nogil"})
+        )
+        assert "--enable-experimental-jit" in args
+        assert "--enable-optimizations" in args
+        assert "--disable-gil" in args
