@@ -102,6 +102,36 @@ every-python bisect --good v3.13.0 --bad main --jit --run "python test.py"
 
 Note: LLVM is only needed at build time, not at runtime. JIT and non-JIT builds are stored separately.
 
+### Build with PGO + LTO
+
+Build Python with profile-guided optimization and link-time optimization:
+
+```bash
+# Build with PGO + LTO
+every-python install main --pgo
+
+# Combine with JIT
+every-python install main --jit --pgo
+```
+
+On Unix this maps to `--enable-optimizations`; on Windows it triggers the `PGInstrument`/`PGUpdate` configuration cycle. Both produce PGO + LTO builds. Expect the build to take significantly longer than a regular debug build.
+
+### Build free-threaded (no-GIL)
+
+Build Python with the GIL disabled (PEP 703, available in 3.13+):
+
+```bash
+# Build a free-threaded Python
+every-python install main --nogil
+
+# Combine flags
+every-python install main --pgo --nogil
+```
+
+`every-python` checks whether the commit supports `--disable-gil` before building. Pre-3.13 commits silently accept the flag but produce a regular GIL-enabled build, so the tool will warn and ask before continuing.
+
+**Note:** `--jit` and `--nogil` are not currently compatible upstream — the experimental JIT does not support free-threaded builds. `every-python` will let you pass both flags, but expect the build to fail or the JIT to be disabled in the resulting binary.
+
 ### List built versions
 
 ```bash
@@ -168,9 +198,12 @@ sys.exit(0)  # Feature doesn't exist - mark as "good"
 ~/.every-python/
 ├── cpython/          # Blobless clone of CPython repository
 └── builds/           # Cached builds
-    ├── abc123d/      # Build for commit abc123d
-    ├── abc123d-jit/  # JIT build for commit abc123d
-    └── def456e/      # Build for commit def456e
+    ├── abc123d/              # Build for commit abc123d
+    ├── abc123d-jit/          # JIT build
+    ├── abc123d-pgo/          # PGO + LTO build
+    ├── abc123d-nogil/        # Free-threaded build
+    ├── abc123d-jit-pgo-nogil/  # All flags combined
+    └── def456e/              # Build for commit def456e
 ```
 
 ## License
