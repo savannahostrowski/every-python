@@ -28,11 +28,7 @@ from every_python.utils import (
 
 
 def _flags_from_bools(jit: bool, pgo: bool, nogil: bool) -> frozenset[str]:
-    flag_states: list[tuple[str, bool]] = [
-        ("jit", jit), 
-        ("pgo", pgo),
-        ("nogil", nogil)
-    ]
+    flag_states: list[tuple[str, bool]] = [("jit", jit), ("pgo", pgo), ("nogil", nogil)]
     return frozenset(name for name, enabled in flag_states if enabled)
 
 
@@ -42,6 +38,7 @@ def _all_flag_combos() -> Iterator[frozenset[str]]:
         for r in range(len(BUILD_FLAGS) + 1)
         for c in combinations(BUILD_FLAGS, r)
     )
+
 
 app = typer.Typer()
 console = Console()
@@ -120,9 +117,7 @@ def _show_llvm_install_instructions(llvm_version: str) -> None:
         )
 
 
-def _resolve_jit_availability(
-    commit: str, repo_dir: Path
-) -> tuple[bool, str | None]:
+def _resolve_jit_availability(commit: str, repo_dir: Path) -> tuple[bool, str | None]:
     """Resolve whether JIT can be enabled for the given commit and which LLVM to use.
 
     Returns (enabled, llvm_version). llvm_version is None when JIT is disabled.
@@ -192,6 +187,7 @@ def _get_configure_args(build_dir: Path, flags: frozenset[str]) -> list[str]:
             args.append(flag_map[flag])
     return args
 
+
 def _windows_build_platform() -> str:
     """Map the host architecture to a PCbuild -p value."""
     machine = platform.machine().lower()
@@ -205,6 +201,7 @@ def _windows_build_platform() -> str:
 def _windows_pcbuild_subdir(plat: str) -> str:
     """Map a PCbuild -p value to its output subdirectory."""
     return {"ARM64": "arm64", "Win32": "win32", "x64": "amd64"}[plat]
+
 
 def _run_clean_repo(
     runner: CommandRunner,
@@ -389,9 +386,7 @@ def build_python(
         _run_clean_repo(runner, verbose, progress, task)
 
         # Configure
-        _run_configure(
-            runner, build_dir, build_info.flags, verbose, progress, task
-        )
+        _run_configure(runner, build_dir, build_info.flags, verbose, progress, task)
 
         # Build and install (platform-specific)
         if platform.system() == "Windows":
@@ -471,7 +466,9 @@ def run(
     ref: Annotated[str, typer.Argument(help="Git ref to use")],
     command: Annotated[list[str], typer.Argument(help="Command to execute")],
     jit: Annotated[bool, typer.Option("--jit", help="Use JIT-enabled build")] = False,
-    pgo: Annotated[bool, typer.Option("--pgo", help="Enable optimized build (PGO + LTO)")] = False,
+    pgo: Annotated[
+        bool, typer.Option("--pgo", help="Enable optimized build (PGO + LTO)")
+    ] = False,
     nogil: Annotated[
         bool, typer.Option("--nogil", help="Use free-threaded build")
     ] = False,
@@ -480,9 +477,7 @@ def run(
     output = get_output()
     try:
         commit = _resolve_ref(ref)
-        build_info = BuildInfo(
-            commit=commit, flags=_flags_from_bools(jit, pgo, nogil)
-        )
+        build_info = BuildInfo(commit=commit, flags=_flags_from_bools(jit, pgo, nogil))
         build_dir = build_info.get_path(BUILDS_DIR)
 
         if not build_dir.exists():
@@ -621,7 +616,9 @@ def clean(
                 build_dir = build_info.get_path(BUILDS_DIR)
                 if build_dir.exists():
                     shutil.rmtree(build_dir)
-                    label = "+".join(f.upper() for f in BUILD_FLAGS if f in flags) or "base"
+                    label = (
+                        "+".join(f.upper() for f in BUILD_FLAGS if f in flags) or "base"
+                    )
                     removed.append(label)
 
             if removed:

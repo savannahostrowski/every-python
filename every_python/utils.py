@@ -246,7 +246,7 @@ class BuildInfo:
     @classmethod
     def from_directory_name(cls, name: str) -> "BuildInfo":
         """Parse build info from directory name."""
-        flags = set()
+        flags: set[str] = set()
         for flag in reversed(BUILD_FLAGS):
             token = f"-{flag}"
             if name.endswith(token):
