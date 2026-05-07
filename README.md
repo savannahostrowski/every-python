@@ -130,7 +130,7 @@ every-python install main --pgo --nogil
 
 `every-python` checks whether the commit supports `--disable-gil` before building. Pre-3.13 commits silently accept the flag but produce a regular GIL-enabled build, so the tool will warn and ask before continuing.
 
-**Note:** `--jit` and `--nogil` are not currently compatible upstream — the experimental JIT does not support free-threaded builds. `every-python` will let you pass both flags, but expect the build to fail or the JIT to be disabled in the resulting binary.
+**Note:** `--jit` and `--nogil` together is a degenerate configuration upstream. The build succeeds and free-threading is enabled, but the JIT code is compiled in and never actually used at runtime ([configure.ac](https://github.com/python/cpython/blob/main/configure.ac) emits a warning, see [GH-133171](https://github.com/python/cpython/issues/133171)).
 
 ### List built versions
 
