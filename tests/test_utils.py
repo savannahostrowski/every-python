@@ -79,6 +79,20 @@ class TestBuildInfo:
         assert info.commit == "abc123def456"
         assert info.flags == frozenset({"jit", "pgo"})
 
+    def test_nogil_round_trip(self):
+        """Test nogil-only build constructs and parses back."""
+        info = BuildInfo(commit="abc123def456", flags=frozenset({"nogil"}))
+        assert info.directory_name == "abc123def456-nogil"
+        assert BuildInfo.from_directory_name(info.directory_name) == info
+
+    def test_all_three_flags(self):
+        """Test that all three flags round-trip in canonical order."""
+        info = BuildInfo(
+            commit="abc123def456", flags=frozenset({"jit", "pgo", "nogil"})
+        )
+        assert info.directory_name == "abc123def456-jit-pgo-nogil"
+        assert BuildInfo.from_directory_name(info.directory_name) == info
+
 
 class TestGetLLVMVersion:
     """Test LLVM version detection from commit."""
