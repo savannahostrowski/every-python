@@ -14,6 +14,7 @@ from rich.progress import Progress, TaskID
 from rich.table import Table
 from typing_extensions import Annotated
 
+from every_python import __version__
 from every_python.output import create_progress, get_output, jit_indicator
 from every_python.runner import CommandResult, CommandRunner, get_runner
 from every_python.utils import (
@@ -42,6 +43,28 @@ def _all_flag_combos() -> Iterator[frozenset[str]]:
 
 app = typer.Typer()
 console = Console()
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"every-python {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            callback=_version_callback,
+            is_eager=True,
+            help="Show the every-python version and exit.",
+        ),
+    ] = False,
+) -> None:
+    """Build and run any commit of CPython."""
+
 
 BASE_DIR = Path.home() / ".every-python"
 REPO_DIR = BASE_DIR / "cpython"
