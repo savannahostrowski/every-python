@@ -14,6 +14,8 @@ Building CPython from source is time-consuming. `every-python` makes it easy to:
 
 - **Build any CPython commit** - main, release tags, or specific commits
 - **Build with experimental JIT support** - Build with `--enable-experimental-jit` (includes LLVM version detection)
+- **Build with PGO + LTO** - Optimized release builds via `--pgo`
+- **Build free-threaded (no-GIL)** - Build with `--disable-gil` via `--nogil` (3.13+)
 - **Smart caching** - Builds cached in `~/.every-python/builds/` for instant reuse
 - **Git bisect integration** - Automatically find which commit introduced a bug
 
