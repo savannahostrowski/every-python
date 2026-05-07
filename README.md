@@ -42,6 +42,11 @@ uv sync
 - [CPython build dependencies](https://devguide.python.org/getting-started/setup-building/)
 - [LLVM](https://github.com/python/cpython/blob/main/Tools/jit/README.md), for JIT builds
 
+### Platform support
+
+- **macOS / Linux**: builds via `./configure --with-pydebug` + `make`.
+- **Windows**: builds via `PCbuild\build.bat -c Debug -p <arch>` (requires Visual Studio with C++ workload, as documented in [PCbuild/readme.txt](https://github.com/python/cpython/blob/main/PCbuild/readme.txt)). The platform is auto-detected from the host (`x64`, `ARM64`, or `Win32`) and artifacts are copied from the matching `PCbuild\<arch>` directory into the cache. The resulting binary is `python_d.exe`.
+
 ## Usage
 
 ### Build and install a Python version
