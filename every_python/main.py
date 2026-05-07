@@ -3,7 +3,9 @@ import os
 import platform
 import shutil
 import subprocess
+from collections.abc import Iterator
 from datetime import datetime
+from itertools import combinations
 from pathlib import Path
 
 import typer
@@ -15,12 +17,28 @@ from typing_extensions import Annotated
 from every_python.output import create_progress, get_output, jit_indicator
 from every_python.runner import CommandResult, CommandRunner, get_runner
 from every_python.utils import (
+    BUILD_FLAGS,
     BuildInfo,
     BuildVersion,
     check_llvm_available,
     get_llvm_version_for_commit,
+    is_nogil_available_in_commit,
     python_binary_location,
 )
+
+
+def _flags_from_bools(jit: bool, pgo: bool, nogil: bool) -> frozenset[str]:
+    flag_states: list[tuple[str, bool]] = [("jit", jit), ("pgo", pgo), ("nogil", nogil)]
+    return frozenset(name for name, enabled in flag_states if enabled)
+
+
+def _all_flag_combos() -> Iterator[frozenset[str]]:
+    return (
+        frozenset(c)
+        for r in range(len(BUILD_FLAGS) + 1)
+        for c in combinations(BUILD_FLAGS, r)
+    )
+
 
 app = typer.Typer()
 console = Console()
@@ -99,8 +117,11 @@ def _show_llvm_install_instructions(llvm_version: str) -> None:
         )
 
 
-def _validate_jit_availability(commit: str, repo_dir: Path) -> bool:
-    """Check if JIT can be enabled for the given commit."""
+def _resolve_jit_availability(commit: str, repo_dir: Path) -> tuple[bool, str | None]:
+    """Resolve whether JIT can be enabled for the given commit and which LLVM to use.
+
+    Returns (enabled, llvm_version). llvm_version is None when JIT is disabled.
+    """
     output = get_output()
     llvm_version = get_llvm_version_for_commit(commit, repo_dir)
 
@@ -108,17 +129,63 @@ def _validate_jit_availability(commit: str, repo_dir: Path) -> bool:
         output.warning("Warning: JIT not available in this commit")
         if not typer.confirm("Continue building without JIT?", default=True):
             raise typer.Exit(0)
-        return False
+        return False, None
 
     if not check_llvm_available(llvm_version):
         output.warning(f"Warning: LLVM {llvm_version} not found")
         _show_llvm_install_instructions(llvm_version)
         if not typer.confirm("Continue building without JIT?", default=True):
             raise typer.Exit(0)
-        return False
+        return False, None
 
-    output.status(f"Building with JIT (LLVM {llvm_version})")
+    return True, llvm_version
+
+
+def _resolve_nogil_availability(commit: str, repo_dir: Path) -> bool:
+    """Check if --disable-gil is supported at the given commit.
+
+    Pre-3.13 commits silently accept the flag but produce a GIL-enabled build,
+    so we refuse to mislabel the cache.
+    """
+    output = get_output()
+    if not is_nogil_available_in_commit(commit, repo_dir):
+        output.warning(
+            "Warning: free-threading (--disable-gil) not available in this commit"
+        )
+        if not typer.confirm("Continue building with the GIL?", default=True):
+            raise typer.Exit(0)
+        return False
     return True
+
+
+FLAG_TO_CONFIGURE_ARG_UNIX: dict[str, str] = {
+    "jit": "--enable-experimental-jit",
+    "pgo": "--enable-optimizations",
+    "nogil": "--disable-gil",
+}
+
+FLAG_TO_CONFIGURE_ARG_WINDOWS: dict[str, str] = {
+    "jit": "--experimental-jit",
+    "pgo": "--pgo",
+    "nogil": "--disable-gil",
+}
+
+
+def _get_configure_args(build_dir: Path, flags: frozenset[str]) -> list[str]:
+    """Get platform-specific configure arguments."""
+    if platform.system() == "Windows":
+        plat = _windows_build_platform()
+        args = ["cmd", "/c", "PCbuild\\build.bat", "-c", "Debug", "-p", plat]
+        flag_map = FLAG_TO_CONFIGURE_ARG_WINDOWS
+    else:
+        args = ["./configure", "--prefix", str(build_dir), "--with-pydebug"]
+        flag_map = FLAG_TO_CONFIGURE_ARG_UNIX
+
+    # Iterate BUILD_FLAGS to keep argument order stable
+    for flag in BUILD_FLAGS:
+        if flag in flags:
+            args.append(flag_map[flag])
+    return args
 
 
 def _windows_build_platform() -> str:
@@ -134,21 +201,6 @@ def _windows_build_platform() -> str:
 def _windows_pcbuild_subdir(plat: str) -> str:
     """Map a PCbuild -p value to its output subdirectory."""
     return {"ARM64": "arm64", "Win32": "win32", "x64": "amd64"}[plat]
-
-
-def _get_configure_args(build_dir: Path, enable_jit: bool) -> list[str]:
-    """Get platform-specific configure arguments."""
-    if platform.system() == "Windows":
-        plat = _windows_build_platform()
-        args = ["cmd", "/c", "PCbuild\\build.bat", "-c", "Debug", "-p", plat]
-        if enable_jit:
-            args.append("--experimental-jit")
-        return args
-
-    args = ["./configure", "--prefix", str(build_dir), "--with-pydebug"]
-    if enable_jit:
-        args.append("--enable-experimental-jit")
-    return args
 
 
 def _run_clean_repo(
@@ -181,14 +233,14 @@ def _run_clean_repo(
 def _run_configure(
     runner: CommandRunner,
     build_dir: Path,
-    enable_jit: bool,
+    flags: frozenset[str],
     verbose: bool,
     progress: Progress,
     task: TaskID,
 ) -> None:
     """Run the configure step."""
     output = get_output()
-    configure_args = _get_configure_args(build_dir, enable_jit)
+    configure_args = _get_configure_args(build_dir, flags)
 
     if verbose:
         progress.stop()
@@ -270,18 +322,32 @@ def _build_and_install_unix(
         raise typer.Exit(1)
 
 
-def build_python(commit: str, enable_jit: bool = False, verbose: bool = False) -> Path:
+def build_python(
+    commit: str,
+    enable_jit: bool = False,
+    verbose: bool = False,
+    enable_pgo: bool = False,
+    enable_nogil: bool = False,
+) -> Path:
     """Build Python at the given commit."""
     _ensure_repo()
     runner = get_runner()
     output = get_output()
 
     # Check JIT availability if requested
+    llvm_version: str | None = None
     if enable_jit:
-        enable_jit = _validate_jit_availability(commit, REPO_DIR)
+        enable_jit, llvm_version = _resolve_jit_availability(commit, REPO_DIR)
 
-    # Determine build directory based on final JIT flag (after availability checks)
-    build_info = BuildInfo(commit=commit, jit_enabled=enable_jit)
+    # Check free-threading availability if requested
+    if enable_nogil:
+        enable_nogil = _resolve_nogil_availability(commit, REPO_DIR)
+
+    # Determine build directory based on final flags (after availability checks)
+    build_info = BuildInfo(
+        commit=commit,
+        flags=_flags_from_bools(enable_jit, enable_pgo, enable_nogil),
+    )
     build_dir = build_info.get_path(BUILDS_DIR)
 
     # Check if we have a complete cached build
@@ -299,6 +365,13 @@ def build_python(commit: str, enable_jit: bool = False, verbose: bool = False) -
             )
             shutil.rmtree(build_dir)
 
+    if enable_jit:
+        output.status(f"Building with JIT (LLVM {llvm_version})")
+    if enable_pgo:
+        output.status("Building with PGO")
+    if enable_nogil:
+        output.status("Building with GIL disabled (free-threaded)")
+
     with create_progress(console) as progress:
         # Checkout
         task = progress.add_task(f"Checking out {commit[:7]}...", total=None)
@@ -313,7 +386,7 @@ def build_python(commit: str, enable_jit: bool = False, verbose: bool = False) -
         _run_clean_repo(runner, verbose, progress, task)
 
         # Configure
-        _run_configure(runner, build_dir, enable_jit, verbose, progress, task)
+        _run_configure(runner, build_dir, build_info.flags, verbose, progress, task)
 
         # Build and install (platform-specific)
         if platform.system() == "Windows":
@@ -342,6 +415,12 @@ def install(
     jit: Annotated[
         bool, typer.Option("--jit", help="Enable experimental JIT compiler")
     ] = False,
+    pgo: Annotated[
+        bool, typer.Option("--pgo", help="Enable optimized build (PGO + LTO)")
+    ] = False,
+    nogil: Annotated[
+        bool, typer.Option("--nogil", help="Build with GIL disabled")
+    ] = False,
     verbose: Annotated[
         bool, typer.Option("--verbose", help="Show build output")
     ] = False,
@@ -352,17 +431,27 @@ def install(
         commit = _resolve_ref(ref)
         output.info(f"Resolved '{ref}' to commit {commit[:7]}")
 
-        build_dir = build_python(commit, enable_jit=jit, verbose=verbose)
+        build_dir = build_python(
+            commit,
+            enable_jit=jit,
+            verbose=verbose,
+            enable_pgo=pgo,
+            enable_nogil=nogil,
+        )
 
         output.success(f"\nSuccessfully built CPython {commit[:7]}")
         output.info(f"Location: {build_dir}")
 
-        # Check if JIT was actually enabled (by checking the build directory name)
-        actual_jit = build_dir.name.endswith("-jit")
+        # Reflect what was actually enabled by inspecting the build directory name
+        actual_flags = BuildInfo.from_directory(build_dir).flags
 
         run_example = f"every-python run {ref}"
-        if actual_jit:
+        if "jit" in actual_flags:
             run_example += " --jit"
+        if "pgo" in actual_flags:
+            run_example += " --pgo"
+        if "nogil" in actual_flags:
+            run_example += " --nogil"
 
         run_example += " -- python --version"
         output.info(f"\nRun with: {run_example}")
@@ -377,19 +466,27 @@ def run(
     ref: Annotated[str, typer.Argument(help="Git ref to use")],
     command: Annotated[list[str], typer.Argument(help="Command to execute")],
     jit: Annotated[bool, typer.Option("--jit", help="Use JIT-enabled build")] = False,
+    pgo: Annotated[
+        bool, typer.Option("--pgo", help="Enable optimized build (PGO + LTO)")
+    ] = False,
+    nogil: Annotated[
+        bool, typer.Option("--nogil", help="Use free-threaded build")
+    ] = False,
 ):
     """Run a command with a specific Python version."""
     output = get_output()
     try:
         commit = _resolve_ref(ref)
-        build_info = BuildInfo(commit=commit, jit_enabled=jit)
+        build_info = BuildInfo(commit=commit, flags=_flags_from_bools(jit, pgo, nogil))
         build_dir = build_info.get_path(BUILDS_DIR)
 
         if not build_dir.exists():
             output.warning(
                 f"Build for {ref}{build_info.suffix} not found, building now..."
             )
-            build_dir = build_python(commit, enable_jit=jit)
+            build_dir = build_python(
+                commit, enable_jit=jit, enable_pgo=pgo, enable_nogil=nogil
+            )
 
         python_bin = python_binary_location(BUILDS_DIR, build_info)
 
@@ -443,7 +540,7 @@ def list_builds():
             x.minor,
             x.micro,
             x.suffix,
-            not x.build_info.jit_enabled,
+            "jit" not in x.build_info.flags,
         ),
         reverse=True,
     )
@@ -476,7 +573,7 @@ def list_builds():
             msg = ""
 
         if bv.version_string != "unknown":
-            jit_text = jit_indicator() if bv.build_info.jit_enabled else ""
+            jit_text = jit_indicator() if "jit" in bv.build_info.flags else ""
             table.add_row(
                 bv.version_string.replace("Python ", ""),
                 jit_text,
@@ -514,15 +611,18 @@ def clean(
             commit = _resolve_ref(ref)
 
             removed: list[str] = []
-            for jit_enabled in [False, True]:
-                build_info = BuildInfo(commit=commit, jit_enabled=jit_enabled)
+            for flags in _all_flag_combos():
+                build_info = BuildInfo(commit=commit, flags=flags)
                 build_dir = build_info.get_path(BUILDS_DIR)
                 if build_dir.exists():
                     shutil.rmtree(build_dir)
-                    removed.append("JIT" if jit_enabled else "non-JIT")
+                    label = (
+                        "+".join(f.upper() for f in BUILD_FLAGS if f in flags) or "base"
+                    )
+                    removed.append(label)
 
             if removed:
-                variants = " and ".join(removed)
+                variants = ", ".join(removed)
                 output.success(f"Removed {variants} build(s) for {commit[:7]}")
             else:
                 output.warning(f"No builds found for {commit[:7]}")
@@ -543,6 +643,12 @@ def bisect(
     ],
     jit: Annotated[
         bool, typer.Option("--jit", help="Enable experimental JIT compiler")
+    ] = False,
+    pgo: Annotated[
+        bool, typer.Option("--pgo", help="Enable optimized build (PGO + LTO)")
+    ] = False,
+    nogil: Annotated[
+        bool, typer.Option("--nogil", help="Build with GIL disabled")
     ] = False,
 ):
     """
@@ -623,8 +729,16 @@ def bisect(
 
             # Build this commit (build_python handles incomplete builds internally)
             try:
-                build_python(current_commit, enable_jit=jit)
-                build_info = BuildInfo(commit=current_commit, jit_enabled=jit)
+                build_python(
+                    current_commit,
+                    enable_jit=jit,
+                    enable_pgo=pgo,
+                    enable_nogil=nogil,
+                )
+                build_info = BuildInfo(
+                    commit=current_commit,
+                    flags=_flags_from_bools(jit, pgo, nogil),
+                )
                 python_bin = python_binary_location(BUILDS_DIR, build_info)
             except typer.Exit:
                 # Build failed - skip this commit in bisect

@@ -19,9 +19,9 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [commit]
-      - id: pyright
-        name: pyright
-        entry: uv run pyright every_python/
+      - id: ty
+        name: ty
+        entry: uv run ty check every_python/
         language: system
         pass_filenames: false
         types: [python]
