@@ -121,10 +121,26 @@ def _validate_jit_availability(commit: str, repo_dir: Path) -> bool:
     return True
 
 
+def _windows_build_platform() -> str:
+    """Map the host architecture to a PCbuild -p value."""
+    machine = platform.machine().lower()
+    if machine in ("arm64", "aarch64"):
+        return "ARM64"
+    if machine in ("x86", "i386", "i686"):
+        return "Win32"
+    return "x64"
+
+
+def _windows_pcbuild_subdir(plat: str) -> str:
+    """Map a PCbuild -p value to its output subdirectory."""
+    return {"ARM64": "arm64", "Win32": "win32", "x64": "amd64"}[plat]
+
+
 def _get_configure_args(build_dir: Path, enable_jit: bool) -> list[str]:
     """Get platform-specific configure arguments."""
     if platform.system() == "Windows":
-        args = ["cmd", "/c", "PCbuild\\build.bat", "-c", "Debug"]
+        plat = _windows_build_platform()
+        args = ["cmd", "/c", "PCbuild\\build.bat", "-c", "Debug", "-p", plat]
         if enable_jit:
             args.append("--experimental-jit")
         return args
@@ -198,14 +214,13 @@ def _build_and_install_windows(
     output = get_output()
     progress.update(task, description="Copying build artifacts...")
 
-    # Find build output directory
-    pcbuild_dir = REPO_DIR / "PCbuild" / "amd64"
-    if not pcbuild_dir.exists():
-        pcbuild_dir = REPO_DIR / "PCbuild" / "win32"
+    # Find build output directory matching the host architecture
+    plat = _windows_build_platform()
+    pcbuild_dir = REPO_DIR / "PCbuild" / _windows_pcbuild_subdir(plat)
 
     if not pcbuild_dir.exists():
         progress.stop()
-        output.error("Build output not found in PCbuild directory")
+        output.error(f"Build output not found at {pcbuild_dir}")
         raise typer.Exit(1)
 
     build_dir.mkdir(parents=True, exist_ok=True)
@@ -411,7 +426,7 @@ def list_builds():
     build_versions: list[BuildVersion] = []
     for build in BUILDS_DIR.iterdir():
         build_info = BuildInfo.from_directory(build)
-        python_bin = build / "bin" / "python3"
+        python_bin = python_binary_location(BUILDS_DIR, build_info)
 
         if python_bin.exists():
             result = runner.run([str(python_bin), "--version"])
