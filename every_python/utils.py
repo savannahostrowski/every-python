@@ -30,6 +30,26 @@ def get_llvm_version_for_commit(commit: str, repo_dir: Path) -> str | None:
     return None
 
 
+def is_nogil_available_in_commit(commit: str, repo_dir: Path) -> bool:
+    """Check if --disable-gil is supported at the given CPython commit.
+
+    Pre-3.13 commits silently accept --disable-gil but produce a normal
+    GIL-enabled build, which would mislabel the cache. Detect that here so
+    we can refuse or downgrade.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "show", f"{commit}:configure.ac"],
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return "--disable-gil" in result.stdout
+    except subprocess.CalledProcessError:
+        return False
+
+
 def check_llvm_available(version: str) -> bool:
     """
     Check if a specific LLVM version is available on the system.

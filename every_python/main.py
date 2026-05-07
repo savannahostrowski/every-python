@@ -22,6 +22,7 @@ from every_python.utils import (
     BuildVersion,
     check_llvm_available,
     get_llvm_version_for_commit,
+    is_nogil_available_in_commit,
     python_binary_location,
 )
 
@@ -145,27 +146,49 @@ def _resolve_jit_availability(
     return True, llvm_version
 
 
-def _get_configure_args(
-    build_dir: Path, enable_jit: bool = False, enable_pgo: bool = False, enable_nogil: bool = False
-) -> list[str]:
+def _resolve_nogil_availability(commit: str, repo_dir: Path) -> bool:
+    """Check if --disable-gil is supported at the given commit.
+
+    Pre-3.13 commits silently accept the flag but produce a GIL-enabled build,
+    so we refuse to mislabel the cache.
+    """
+    output = get_output()
+    if not is_nogil_available_in_commit(commit, repo_dir):
+        output.warning(
+            "Warning: free-threading (--disable-gil) not available in this commit"
+        )
+        if not typer.confirm("Continue building with the GIL?", default=True):
+            raise typer.Exit(0)
+        return False
+    return True
+
+
+FLAG_TO_CONFIGURE_ARG_UNIX: dict[str, str] = {
+    "jit": "--enable-experimental-jit",
+    "pgo": "--enable-optimizations",
+    "nogil": "--disable-gil",
+}
+
+FLAG_TO_CONFIGURE_ARG_WINDOWS: dict[str, str] = {
+    "jit": "--experimental-jit",
+    "pgo": "--pgo",
+    "nogil": "--disable-gil",
+}
+
+
+def _get_configure_args(build_dir: Path, flags: frozenset[str]) -> list[str]:
     """Get platform-specific configure arguments."""
     if platform.system() == "Windows":
         args = ["cmd", "/c", "PCbuild\\build.bat", "-c", "Debug"]
-        if enable_jit:
-            args.append("--experimental-jit")
-        if enable_pgo:
-            args.append("--pgo")
-        if enable_nogil:
-            args.append("--disable-gil")
-        return args
+        flag_map = FLAG_TO_CONFIGURE_ARG_WINDOWS
+    else:
+        args = ["./configure", "--prefix", str(build_dir), "--with-pydebug"]
+        flag_map = FLAG_TO_CONFIGURE_ARG_UNIX
 
-    args = ["./configure", "--prefix", str(build_dir), "--with-pydebug"]
-    if enable_jit:
-        args.append("--enable-experimental-jit")
-    if enable_pgo:
-        args.append("--enable-optimizations")
-    if enable_nogil:
-        args.append("--disable-gil")
+    # Iterate BUILD_FLAGS to keep argument order stable
+    for flag in BUILD_FLAGS:
+        if flag in flags:
+            args.append(flag_map[flag])
     return args
 
 
@@ -199,18 +222,14 @@ def _run_clean_repo(
 def _run_configure(
     runner: CommandRunner,
     build_dir: Path,
-    enable_jit: bool,
+    flags: frozenset[str],
     verbose: bool,
     progress: Progress,
     task: TaskID,
-    enable_pgo: bool = False,
-    enable_nogil: bool = False,
 ) -> None:
     """Run the configure step."""
     output = get_output()
-    configure_args = _get_configure_args(
-        build_dir, enable_jit, enable_pgo, enable_nogil
-    )
+    configure_args = _get_configure_args(build_dir, flags)
 
     if verbose:
         progress.stop()
@@ -310,6 +329,10 @@ def build_python(
     if enable_jit:
         enable_jit, llvm_version = _resolve_jit_availability(commit, REPO_DIR)
 
+    # Check free-threading availability if requested
+    if enable_nogil:
+        enable_nogil = _resolve_nogil_availability(commit, REPO_DIR)
+
     # Determine build directory based on final flags (after availability checks)
     build_info = BuildInfo(
         commit=commit,
@@ -354,9 +377,7 @@ def build_python(
 
         # Configure
         _run_configure(
-            runner, build_dir, enable_jit, verbose, progress, task,
-            enable_pgo=enable_pgo,
-            enable_nogil=enable_nogil,
+            runner, build_dir, build_info.flags, verbose, progress, task
         )
 
         # Build and install (platform-specific)

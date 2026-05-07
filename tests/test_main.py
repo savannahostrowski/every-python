@@ -461,34 +461,42 @@ class TestGetConfigureArgs:
 
     @patch("platform.system", return_value="Linux")
     def test_no_flags(self, _mock_platform: Mock):
-        args = _get_configure_args(Path("/tmp/build"), False, False, False)
+        args = _get_configure_args(Path("/tmp/build"), frozenset())
         assert "--enable-experimental-jit" not in args
         assert "--enable-optimizations" not in args
         assert "--disable-gil" not in args
 
     @patch("platform.system", return_value="Linux")
     def test_jit_flag_unix(self, _mock_platform: Mock):
-        args = _get_configure_args(Path("/tmp/build"), True, False, False)
+        args = _get_configure_args(Path("/tmp/build"), frozenset({"jit"}))
         assert "--enable-experimental-jit" in args
 
     @patch("platform.system", return_value="Linux")
     def test_pgo_flag_unix(self, _mock_platform: Mock):
-        args = _get_configure_args(Path("/tmp/build"), False, True, False)
+        args = _get_configure_args(Path("/tmp/build"), frozenset({"pgo"}))
         assert "--enable-optimizations" in args
 
     @patch("platform.system", return_value="Linux")
     def test_nogil_flag_unix(self, _mock_platform: Mock):
-        args = _get_configure_args(Path("/tmp/build"), False, False, True)
+        args = _get_configure_args(Path("/tmp/build"), frozenset({"nogil"}))
         assert "--disable-gil" in args
 
     @patch("platform.system", return_value="Windows")
     def test_nogil_flag_windows(self, _mock_platform: Mock):
-        args = _get_configure_args(Path("/tmp/build"), False, False, True)
+        args = _get_configure_args(Path("/tmp/build"), frozenset({"nogil"}))
         assert "--disable-gil" in args
+
+    @patch("platform.system", return_value="Windows")
+    def test_pgo_flag_windows_uses_pgo_not_optimizations(self, _mock_platform: Mock):
+        args = _get_configure_args(Path("/tmp/build"), frozenset({"pgo"}))
+        assert "--pgo" in args
+        assert "--enable-optimizations" not in args
 
     @patch("platform.system", return_value="Linux")
     def test_all_flags_unix(self, _mock_platform: Mock):
-        args = _get_configure_args(Path("/tmp/build"), True, True, True)
+        args = _get_configure_args(
+            Path("/tmp/build"), frozenset({"jit", "pgo", "nogil"})
+        )
         assert "--enable-experimental-jit" in args
         assert "--enable-optimizations" in args
         assert "--disable-gil" in args

@@ -7,6 +7,7 @@ from every_python.utils import (
     BuildInfo,
     get_llvm_version_for_commit,
     check_llvm_available,
+    is_nogil_available_in_commit,
     _check_tool_available,
     _check_tool_version,
     _get_homebrew_llvm_tool,
@@ -92,6 +93,38 @@ class TestBuildInfo:
         )
         assert info.directory_name == "abc123def456-jit-pgo-nogil"
         assert BuildInfo.from_directory_name(info.directory_name) == info
+
+
+class TestIsNogilAvailableInCommit:
+    """Test free-threading availability detection."""
+
+    @patch("subprocess.run")
+    def test_available_when_configure_mentions_disable_gil(self, mock_run, tmp_path):
+        repo_dir = tmp_path / "repo"
+        mock_run.return_value = Mock(
+            returncode=0,
+            stdout="AC_ARG_ENABLE([gil],\n  [AS_HELP_STRING([--disable-gil], ...)]\n",
+            stderr="",
+        )
+        assert is_nogil_available_in_commit("abc123d", repo_dir) is True
+
+    @patch("subprocess.run")
+    def test_unavailable_when_configure_lacks_disable_gil(self, mock_run, tmp_path):
+        repo_dir = tmp_path / "repo"
+        mock_run.return_value = Mock(
+            returncode=0,
+            stdout="# pre-3.13 configure.ac with no free-threading support\n",
+            stderr="",
+        )
+        assert is_nogil_available_in_commit("abc123d", repo_dir) is False
+
+    @patch("subprocess.run")
+    def test_unavailable_when_configure_missing(self, mock_run, tmp_path):
+        repo_dir = tmp_path / "repo"
+        mock_run.side_effect = subprocess.CalledProcessError(
+            1, "git show", stderr="fatal: path not in tree"
+        )
+        assert is_nogil_available_in_commit("abc123d", repo_dir) is False
 
 
 class TestGetLLVMVersion:
