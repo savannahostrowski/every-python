@@ -55,8 +55,8 @@ exclude = [
 dev = [
     "pytest>=7.0.0",
     "pytest-mock>=3.10.0",
-    "pyright>=1.1.407",
     "ruff>=0.14.4",
+    "ty>=0.0.34",
 ]
 
 [tool.ruff]
@@ -64,8 +64,3 @@ fix = true
 
 [tool.ruff.lint]
 select = ["I"]  # Enable isort rules for import sorting
-
-[tool.pyright]
-include = ["every_python"]
-typeCheckingMode = "strict"
-pythonVersion = "3.11"
