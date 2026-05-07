@@ -4,6 +4,9 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+# Order matters - define suffix order in parse order (e.g. "-jit-pgo", not "-pgo-jit")
+BUILD_FLAGS: tuple[str, ...] = ("jit", "pgo")
+
 
 def get_llvm_version_for_commit(commit: str, repo_dir: Path) -> str | None:
     """Return the LLVM version required for the given CPython commit."""
@@ -204,12 +207,12 @@ class BuildInfo:
     """Information needed to build and locate a specific Python build."""
 
     commit: str
-    jit_enabled: bool
+    flags: frozenset[str] = frozenset()
 
     @property
     def suffix(self) -> str:
         """Get the build suffix."""
-        return "-jit" if self.jit_enabled else ""
+        return "".join(f"-{f}" for f in BUILD_FLAGS if f in self.flags)
 
     @property
     def directory_name(self) -> str:
@@ -223,9 +226,13 @@ class BuildInfo:
     @classmethod
     def from_directory_name(cls, name: str) -> "BuildInfo":
         """Parse build info from directory name."""
-        if name.endswith("-jit"):
-            return cls(commit=name[:-4], jit_enabled=True)
-        return cls(commit=name, jit_enabled=False)
+        flags = set()
+        for flag in reversed(BUILD_FLAGS):
+            token = f"-{flag}"
+            if name.endswith(token):
+                flags.add(flag)
+                name = name[: -len(token)]
+        return cls(commit=name, flags=frozenset(flags))
 
     @classmethod
     def from_directory(cls, path: Path) -> "BuildInfo":

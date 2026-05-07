@@ -120,7 +120,7 @@ class TestInstallCommand:
         assert "abc123d" in result.stdout
         mock_resolve.assert_called_once_with("main")
         mock_build.assert_called_once_with(
-            "abc123def456", enable_jit=False, verbose=False
+            "abc123def456", enable_jit=False, verbose=False, enable_pgo=False
         )
 
     @patch("every_python.main.build_python")
@@ -136,7 +136,23 @@ class TestInstallCommand:
 
         assert result.exit_code == 0
         mock_build.assert_called_once_with(
-            "abc123def456", enable_jit=True, verbose=False
+            "abc123def456", enable_jit=True, verbose=False, enable_pgo=False
+        )
+
+    @patch("every_python.main.build_python")
+    @patch("every_python.main._resolve_ref")
+    def test_install_with_pgo(
+        self, mock_resolve: Mock, mock_build: Mock, tmp_path: Path
+    ):
+        """Test installing with PGO flag."""
+        mock_resolve.return_value = "abc123def456"
+        mock_build.return_value = tmp_path / "abc123def456-pgo"
+
+        result = runner.invoke(app, ["install", "main", "--pgo"])
+
+        assert result.exit_code == 0
+        mock_build.assert_called_once_with(
+            "abc123def456", enable_jit=False, verbose=False, enable_pgo=True
         )
 
     @patch("every_python.main.build_python")
@@ -152,7 +168,7 @@ class TestInstallCommand:
 
         assert result.exit_code == 0
         mock_build.assert_called_once_with(
-            "abc123def456", enable_jit=False, verbose=True
+            "abc123def456", enable_jit=False, verbose=True, enable_pgo=False
         )
 
 
@@ -212,7 +228,9 @@ class TestRunCommand:
             runner.invoke(app, ["run", "main", "--", "python", "--version"])
 
             # Should build the version
-            mock_build.assert_called_once_with("abc123def456", enable_jit=False)
+            mock_build.assert_called_once_with(
+                "abc123def456", enable_jit=False, enable_pgo=False
+            )
 
 
 class TestListBuildsCommand:

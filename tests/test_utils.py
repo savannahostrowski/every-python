@@ -18,20 +18,20 @@ class TestBuildInfo:
 
     def test_non_jit_build(self):
         """Test non-JIT build info."""
-        info = BuildInfo(commit="abc123def456", jit_enabled=False)
+        info = BuildInfo(commit="abc123def456", flags=frozenset())
         assert info.suffix == ""
         assert info.directory_name == "abc123def456"
 
     def test_jit_build(self):
         """Test JIT build info."""
-        info = BuildInfo(commit="abc123def456", jit_enabled=True)
+        info = BuildInfo(commit="abc123def456", flags=frozenset({"jit"}))
         assert info.suffix == "-jit"
         assert info.directory_name == "abc123def456-jit"
 
     def test_get_path(self, tmp_path):
         """Test getting build path."""
         builds_dir = tmp_path / "builds"
-        info = BuildInfo(commit="abc123", jit_enabled=True)
+        info = BuildInfo(commit="abc123", flags=frozenset({"jit"}))
         path = info.get_path(builds_dir)
         assert path == builds_dir / "abc123-jit"
 
@@ -39,13 +39,13 @@ class TestBuildInfo:
         """Test parsing non-JIT directory name."""
         info = BuildInfo.from_directory_name("abc123def456")
         assert info.commit == "abc123def456"
-        assert info.jit_enabled is False
+        assert info.flags == frozenset()
 
     def test_from_directory_name_jit(self):
         """Test parsing JIT directory name."""
         info = BuildInfo.from_directory_name("abc123def456-jit")
         assert info.commit == "abc123def456"
-        assert info.jit_enabled is True
+        assert info.flags == frozenset({"jit"})
 
     def test_from_directory(self, tmp_path):
         """Test parsing from directory path."""
@@ -53,7 +53,31 @@ class TestBuildInfo:
         build_dir.mkdir(parents=True)
         info = BuildInfo.from_directory(build_dir)
         assert info.commit == "abc123"
-        assert info.jit_enabled is True
+        assert info.flags == frozenset({"jit"})
+
+    def test_pgo_only_build(self):
+        """Test PGO build info without JIT."""
+        info = BuildInfo(commit="abc123def456", flags=frozenset({"pgo"}))
+        assert info.suffix == "-pgo"
+        assert info.directory_name == "abc123def456-pgo"
+
+    def test_jit_pgo_build(self):
+        """Test JIT+PGO build info."""
+        info = BuildInfo(commit="abc123def456", flags=frozenset({"jit", "pgo"}))
+        assert info.suffix == "-jit-pgo"
+        assert info.directory_name == "abc123def456-jit-pgo"
+
+    def test_from_directory_name_pgo_only(self):
+        """Test parsing PGO-only directory name."""
+        info = BuildInfo.from_directory_name("abc123def456-pgo")
+        assert info.commit == "abc123def456"
+        assert info.flags == frozenset({"pgo"})
+
+    def test_from_directory_name_jit_pgo(self):
+        """Test parsing JIT+PGO directory name round-trips."""
+        info = BuildInfo.from_directory_name("abc123def456-jit-pgo")
+        assert info.commit == "abc123def456"
+        assert info.flags == frozenset({"jit", "pgo"})
 
 
 class TestGetLLVMVersion:
