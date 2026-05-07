@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # Order matters - define suffix order in parse order (e.g. "-jit-pgo", not "-pgo-jit")
-BUILD_FLAGS: tuple[str, ...] = ("jit", "pgo")
+BUILD_FLAGS: tuple[str, ...] = ("jit", "pgo", "nogil")
 
 
 def get_llvm_version_for_commit(commit: str, repo_dir: Path) -> str | None:

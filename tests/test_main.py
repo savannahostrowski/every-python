@@ -120,7 +120,7 @@ class TestInstallCommand:
         assert "abc123d" in result.stdout
         mock_resolve.assert_called_once_with("main")
         mock_build.assert_called_once_with(
-            "abc123def456", enable_jit=False, verbose=False, enable_pgo=False
+            "abc123def456", enable_jit=False, verbose=False, enable_pgo=False, enable_nogil=False
         )
 
     @patch("every_python.main.build_python")
@@ -136,7 +136,7 @@ class TestInstallCommand:
 
         assert result.exit_code == 0
         mock_build.assert_called_once_with(
-            "abc123def456", enable_jit=True, verbose=False, enable_pgo=False
+            "abc123def456", enable_jit=True, verbose=False, enable_pgo=False, enable_nogil=False
         )
 
     @patch("every_python.main.build_python")
@@ -152,7 +152,7 @@ class TestInstallCommand:
 
         assert result.exit_code == 0
         mock_build.assert_called_once_with(
-            "abc123def456", enable_jit=False, verbose=False, enable_pgo=True
+            "abc123def456", enable_jit=False, verbose=False, enable_pgo=True, enable_nogil=False
         )
 
     @patch("every_python.main.build_python")
@@ -168,7 +168,7 @@ class TestInstallCommand:
 
         assert result.exit_code == 0
         mock_build.assert_called_once_with(
-            "abc123def456", enable_jit=False, verbose=True, enable_pgo=False
+            "abc123def456", enable_jit=False, verbose=True, enable_pgo=False, enable_nogil=False
         )
 
 
@@ -229,7 +229,7 @@ class TestRunCommand:
 
             # Should build the version
             mock_build.assert_called_once_with(
-                "abc123def456", enable_jit=False, enable_pgo=False
+                "abc123def456", enable_jit=False, enable_pgo=False, enable_nogil=False
             )
 
 

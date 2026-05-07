@@ -26,8 +26,12 @@ from every_python.utils import (
 )
 
 
-def _flags_from_bools(jit: bool, pgo: bool) -> frozenset[str]:
-    flag_states: list[tuple[str, bool]] = [("jit", jit), ("pgo", pgo)]
+def _flags_from_bools(jit: bool, pgo: bool, nogil: bool) -> frozenset[str]:
+    flag_states: list[tuple[str, bool]] = [
+        ("jit", jit), 
+        ("pgo", pgo),
+        ("nogil", nogil)
+    ]
     return frozenset(name for name, enabled in flag_states if enabled)
 
 
@@ -142,7 +146,7 @@ def _resolve_jit_availability(
 
 
 def _get_configure_args(
-    build_dir: Path, enable_jit: bool, enable_pgo: bool = False
+    build_dir: Path, enable_jit: bool = False, enable_pgo: bool = False, enable_nogil: bool = False
 ) -> list[str]:
     """Get platform-specific configure arguments."""
     if platform.system() == "Windows":
@@ -151,6 +155,8 @@ def _get_configure_args(
             args.append("--experimental-jit")
         if enable_pgo:
             args.append("--pgo")
+        if enable_nogil:
+            args.append("--disable-gil")
         return args
 
     args = ["./configure", "--prefix", str(build_dir), "--with-pydebug"]
@@ -158,6 +164,8 @@ def _get_configure_args(
         args.append("--enable-experimental-jit")
     if enable_pgo:
         args.append("--enable-optimizations")
+    if enable_nogil:
+        args.append("--disable-gil")
     return args
 
 
@@ -196,10 +204,13 @@ def _run_configure(
     progress: Progress,
     task: TaskID,
     enable_pgo: bool = False,
+    enable_nogil: bool = False,
 ) -> None:
     """Run the configure step."""
     output = get_output()
-    configure_args = _get_configure_args(build_dir, enable_jit, enable_pgo)
+    configure_args = _get_configure_args(
+        build_dir, enable_jit, enable_pgo, enable_nogil
+    )
 
     if verbose:
         progress.stop()
@@ -287,6 +298,7 @@ def build_python(
     enable_jit: bool = False,
     verbose: bool = False,
     enable_pgo: bool = False,
+    enable_nogil: bool = False,
 ) -> Path:
     """Build Python at the given commit."""
     _ensure_repo()
@@ -298,8 +310,11 @@ def build_python(
     if enable_jit:
         enable_jit, llvm_version = _resolve_jit_availability(commit, REPO_DIR)
 
-    # Determine build directory based on final JIT/PGO flags (after availability checks)
-    build_info = BuildInfo(commit=commit, flags=_flags_from_bools(enable_jit, enable_pgo))
+    # Determine build directory based on final flags (after availability checks)
+    build_info = BuildInfo(
+        commit=commit,
+        flags=_flags_from_bools(enable_jit, enable_pgo, enable_nogil),
+    )
     build_dir = build_info.get_path(BUILDS_DIR)
 
     # Check if we have a complete cached build
@@ -321,6 +336,8 @@ def build_python(
         output.status(f"Building with JIT (LLVM {llvm_version})")
     if enable_pgo:
         output.status("Building with PGO")
+    if enable_nogil:
+        output.status("Building with GIL disabled (free-threaded)")
 
     with create_progress(console) as progress:
         # Checkout
@@ -339,6 +356,7 @@ def build_python(
         _run_configure(
             runner, build_dir, enable_jit, verbose, progress, task,
             enable_pgo=enable_pgo,
+            enable_nogil=enable_nogil,
         )
 
         # Build and install (platform-specific)
@@ -371,6 +389,9 @@ def install(
     pgo: Annotated[
         bool, typer.Option("--pgo", help="Enable PGO build")
     ] = False,
+    nogil: Annotated[
+        bool, typer.Option("--nogil", help="Build with GIL disabled")
+    ] = False,
     verbose: Annotated[
         bool, typer.Option("--verbose", help="Show build output")
     ] = False,
@@ -382,21 +403,26 @@ def install(
         output.info(f"Resolved '{ref}' to commit {commit[:7]}")
 
         build_dir = build_python(
-            commit, enable_jit=jit, verbose=verbose, enable_pgo=pgo
+            commit,
+            enable_jit=jit,
+            verbose=verbose,
+            enable_pgo=pgo,
+            enable_nogil=nogil,
         )
 
         output.success(f"\nSuccessfully built CPython {commit[:7]}")
         output.info(f"Location: {build_dir}")
 
         # Reflect what was actually enabled by inspecting the build directory name
-        actual_jit = "-jit" in build_dir.name
-        actual_pgo = build_dir.name.endswith("-pgo")
+        actual_flags = BuildInfo.from_directory(build_dir).flags
 
         run_example = f"every-python run {ref}"
-        if actual_jit:
+        if "jit" in actual_flags:
             run_example += " --jit"
-        if actual_pgo:
+        if "pgo" in actual_flags:
             run_example += " --pgo"
+        if "nogil" in actual_flags:
+            run_example += " --nogil"
 
         run_example += " -- python --version"
         output.info(f"\nRun with: {run_example}")
@@ -412,19 +438,26 @@ def run(
     command: Annotated[list[str], typer.Argument(help="Command to execute")],
     jit: Annotated[bool, typer.Option("--jit", help="Use JIT-enabled build")] = False,
     pgo: Annotated[bool, typer.Option("--pgo", help="Enable PGO build")] = False,
+    nogil: Annotated[
+        bool, typer.Option("--nogil", help="Use free-threaded build")
+    ] = False,
 ):
     """Run a command with a specific Python version."""
     output = get_output()
     try:
         commit = _resolve_ref(ref)
-        build_info = BuildInfo(commit=commit, flags=_flags_from_bools(jit, pgo))
+        build_info = BuildInfo(
+            commit=commit, flags=_flags_from_bools(jit, pgo, nogil)
+        )
         build_dir = build_info.get_path(BUILDS_DIR)
 
         if not build_dir.exists():
             output.warning(
                 f"Build for {ref}{build_info.suffix} not found, building now..."
             )
-            build_dir = build_python(commit, enable_jit=jit, enable_pgo=pgo)
+            build_dir = build_python(
+                commit, enable_jit=jit, enable_pgo=pgo, enable_nogil=nogil
+            )
 
         python_bin = python_binary_location(BUILDS_DIR, build_info)
 
@@ -583,6 +616,9 @@ def bisect(
     pgo: Annotated[
         bool, typer.Option("--pgo", help="Enable PGO build")
     ] = False,
+    nogil: Annotated[
+        bool, typer.Option("--nogil", help="Build with GIL disabled")
+    ] = False,
 ):
     """
     Use git bisect to find the commit that introduced a bug.
@@ -662,9 +698,15 @@ def bisect(
 
             # Build this commit (build_python handles incomplete builds internally)
             try:
-                build_python(current_commit, enable_jit=jit, enable_pgo=pgo)
+                build_python(
+                    current_commit,
+                    enable_jit=jit,
+                    enable_pgo=pgo,
+                    enable_nogil=nogil,
+                )
                 build_info = BuildInfo(
-                    commit=current_commit, flags=_flags_from_bools(jit, pgo)
+                    commit=current_commit,
+                    flags=_flags_from_bools(jit, pgo, nogil),
                 )
                 python_bin = python_binary_location(BUILDS_DIR, build_info)
             except typer.Exit:
