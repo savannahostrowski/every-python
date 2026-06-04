@@ -3,6 +3,7 @@ from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 from every_python.main import (
@@ -98,10 +99,7 @@ class TestResolveRef:
         with patch("every_python.main.REPO_DIR", repo_dir):
             mock_run.return_value = Mock(returncode=1, stdout="", stderr="fatal: bad")
 
-            # typer.Exit is a subclass of click.exceptions.Exit
-            from click.exceptions import Exit
-
-            with pytest.raises(Exit):
+            with pytest.raises(typer.Exit):
                 _resolve_ref("invalid-ref")
 
 
