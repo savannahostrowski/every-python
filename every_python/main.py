@@ -4,6 +4,7 @@ import platform
 import shutil
 import subprocess
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from itertools import combinations
 from pathlib import Path
@@ -536,15 +537,18 @@ def run(
 def list_builds():
     """List locally built Python versions."""
     output = get_output()
-    if not BUILDS_DIR.exists() or not list(BUILDS_DIR.iterdir()):
+    builds = list(BUILDS_DIR.iterdir()) if BUILDS_DIR.exists() else []
+    if not builds:
         output.warning("No builds found.")
         output.info("Run every-python install main to build the latest version.")
         return
 
-    # Get version info for all builds
+    # Starting an interpreter is relatively expensive, so probe cached builds
+    # concurrently. ThreadPoolExecutor is appropriate here because the work is
+    # spent waiting for subprocesses, not executing Python code.
     runner = get_runner()
-    build_versions: list[BuildVersion] = []
-    for build in BUILDS_DIR.iterdir():
+
+    def get_build_version(build: Path) -> BuildVersion:
         build_info = BuildInfo.from_directory(build)
         python_bin = python_binary_location(BUILDS_DIR, build_info)
 
@@ -554,7 +558,10 @@ def list_builds():
         else:
             version = "unknown"
 
-        build_versions.append(BuildVersion.from_build(build, version, build_info))
+        return BuildVersion.from_build(build, version, build_info)
+
+    with ThreadPoolExecutor() as executor:
+        build_versions = list(executor.map(get_build_version, builds))
 
     # Parse versions once and sort
     build_versions.sort(
