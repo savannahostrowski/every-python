@@ -79,16 +79,21 @@ commits substantially faster:
 # macOS
 brew install ccache
 
-# Build using the compiler cache
+# ccache is used automatically when available
+every-python install main
+
+# Require ccache, or explicitly disable it
 every-python install main --ccache
+every-python install main --no-ccache
 ```
 
 The first build populates the cache. Later builds reuse unchanged compilation
 results even though every-python cleans its CPython checkout between builds.
-The option also works with automatic builds from `run` and with `bisect`.
-Every-python respects an existing `CC` setting and otherwise uses Clang on
-macOS or the default C compiler on Linux. `--ccache` is not currently supported
-on Windows.
+Automatic detection also applies to builds from `run` and `bisect`. Pass
+`--ccache` to require it (and fail if it is unavailable), or `--no-ccache` to
+disable it. Every-python respects an existing `CC` setting and otherwise uses
+Clang on macOS or the default C compiler on Linux. Windows builds continue
+normally unless `--ccache` is explicitly requested, which is unsupported.
 
 ### Run Python with a specific version
 

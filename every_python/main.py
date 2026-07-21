@@ -41,7 +41,7 @@ class BuildOptions:
     """Options controlling a CPython build."""
 
     flags: frozenset[str] = frozenset()
-    ccache: bool = False
+    ccache: bool | None = None
     jobs: int | None = None
     verbose: bool = False
 
@@ -51,7 +51,7 @@ def _build_options(
     jit: bool,
     pgo: bool,
     nogil: bool,
-    ccache: bool,
+    ccache: bool | None,
     jobs: int | None,
     verbose: bool = False,
 ) -> BuildOptions:
@@ -257,20 +257,24 @@ def _windows_pcbuild_subdir(plat: str) -> str:
     return {"ARM64": "arm64", "Win32": "win32", "x64": "amd64"}[plat]
 
 
-def _get_ccache_env() -> dict[str, str]:
-    """Return a build environment that compiles through ccache."""
+def _get_ccache_env(*, required: bool = False) -> dict[str, str] | None:
+    """Return a ccache build environment when it is available."""
     output = get_output()
     if platform.system() == "Windows":
-        output.error("--ccache is currently supported on macOS and Linux only")
-        raise typer.Exit(1)
+        if required:
+            output.error("--ccache is currently supported on macOS and Linux only")
+            raise typer.Exit(1)
+        return None
 
     ccache = shutil.which("ccache")
     if not ccache:
-        output.error("ccache was not found in PATH")
-        output.info(
-            "Install it with: brew install ccache (macOS) or your Linux package manager"
-        )
-        raise typer.Exit(1)
+        if required:
+            output.error("ccache was not found in PATH")
+            output.info(
+                "Install it with: brew install ccache (macOS) or your Linux package manager"
+            )
+            raise typer.Exit(1)
+        return None
 
     compiler = os.environ.get("CC") or (
         "clang" if platform.system() == "Darwin" else "cc"
@@ -459,7 +463,11 @@ def build_python(
             )
             shutil.rmtree(build_dir)
 
-    build_env = _get_ccache_env() if options.ccache else None
+    build_env = (
+        _get_ccache_env(required=options.ccache is True)
+        if options.ccache is not False
+        else None
+    )
     if options.jobs is not None and platform.system() == "Windows":
         output.error(
             "--jobs is currently supported on macOS and Linux only; "
@@ -473,7 +481,7 @@ def build_python(
         output.status("Building with PGO")
     if "nogil" in flags:
         output.status("Building with GIL disabled (free-threaded)")
-    if options.ccache:
+    if build_env is not None:
         output.status("Building with ccache")
 
     with create_progress(console) as progress:
@@ -541,8 +549,12 @@ def install(
         bool, typer.Option("--nogil", help="Build with GIL disabled")
     ] = False,
     ccache: Annotated[
-        bool, typer.Option("--ccache", help="Cache compilation results with ccache")
-    ] = False,
+        bool | None,
+        typer.Option(
+            "--ccache/--no-ccache",
+            help="Use ccache (default: automatically when available)",
+        ),
+    ] = None,
     jobs: Annotated[
         int | None,
         typer.Option("--jobs", min=1, help="Number of parallel Unix build jobs"),
@@ -601,9 +613,12 @@ def run(
         bool, typer.Option("--nogil", help="Use free-threaded build")
     ] = False,
     ccache: Annotated[
-        bool,
-        typer.Option("--ccache", help="Use ccache if an automatic build is needed"),
-    ] = False,
+        bool | None,
+        typer.Option(
+            "--ccache/--no-ccache",
+            help="Use ccache for automatic builds (default: detect)",
+        ),
+    ] = None,
     jobs: Annotated[
         int | None,
         typer.Option(
@@ -799,8 +814,12 @@ def bisect(
         bool, typer.Option("--nogil", help="Build with GIL disabled")
     ] = False,
     ccache: Annotated[
-        bool, typer.Option("--ccache", help="Cache compilation results with ccache")
-    ] = False,
+        bool | None,
+        typer.Option(
+            "--ccache/--no-ccache",
+            help="Use ccache (default: automatically when available)",
+        ),
+    ] = None,
     jobs: Annotated[
         int | None,
         typer.Option("--jobs", min=1, help="Number of parallel Unix build jobs"),
