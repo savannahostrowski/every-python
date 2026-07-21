@@ -16,6 +16,7 @@ Building CPython from source is time-consuming. `every-python` makes it easy to:
 
 - **Build any CPython commit** - main, release tags, or specific commits
 - **Build from CPython forks** - Use a GitHub `owner/repository` or full Git URL
+- **Fast repository setup** - Reuse Git objects from an existing local CPython clone
 - **Build with experimental JIT support** - Build with `--enable-experimental-jit` (includes LLVM version detection)
 - **Build with PGO + LTO** - Optimized release builds via `--pgo`
 - **Build free-threaded (no-GIL)** - Build with `--disable-gil` via `--nogil` (3.13+)
@@ -24,7 +25,7 @@ Building CPython from source is time-consuming. `every-python` makes it easy to:
 
 ## How it works
 
-`every-python` makes a [blobless clone](https://github.blog/open-source/git/get-up-to-speed-with-partial-clone-and-shallow-clone/) of the CPython repository (~200MB), checks out the version you want, and builds it locally with `--with-pydebug`. Built versions are cached in `~/.every-python/builds/` for reuse.
+`every-python` makes a managed [blobless clone](https://github.blog/open-source/git/get-up-to-speed-with-partial-clone-and-shallow-clone/) of the CPython repository, checks out the version you want, and builds it locally with `--with-pydebug`. Built versions are cached in `~/.every-python/builds/` for reuse.
 
 ## Installation
 
@@ -90,6 +91,41 @@ Without `--repo`, every-python continues to use the upstream
 fork. `list-builds` shows the repository provenance recorded for new builds;
 builds created by older every-python versions are shown as upstream `python`
 builds because custom repositories were not previously supported.
+
+### Speed up initial setup with a local clone
+
+If CPython is already cloned locally, every-python can borrow its Git objects
+when creating a managed clone:
+
+```bash
+every-python install main --reference-repo ~/code/cpython
+```
+
+To use the same reference clone automatically, set an environment variable:
+
+```bash
+export EVERY_PYTHON_REFERENCE_REPO=~/code/cpython
+every-python install main
+```
+
+This optimization only applies when every-python needs to create a managed
+clone. If that repository is already managed, the option has no effect.
+
+The reference does not need to have the same remote; it only needs to share Git
+history. For example, a local upstream checkout can accelerate cloning a fork:
+
+```bash
+every-python install lazy \
+  --repo LazyImportsCabal/cpython \
+  --reference-repo ~/code/cpython
+```
+
+Every-python passes `--reference-if-able` and `--dissociate` to Git. Git may
+spend some time copying and repacking the borrowed objects, but avoids
+downloading shared history. The resulting managed clone is independent, so the
+reference checkout is never modified and can later be moved or deleted. This
+only accelerates cloning; configuring and compiling CPython still take their
+normal amount of time.
 
 ### Reuse compilation results with ccache
 

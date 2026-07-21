@@ -118,7 +118,7 @@ class TestInstallCommand:
 
         assert result.exit_code == 0
         assert "abc123d" in result.stdout
-        mock_resolve.assert_called_once_with("main", None)
+        mock_resolve.assert_called_once_with("main", None, None)
         mock_build.assert_called_once_with("abc123def456", BuildOptions())
 
     @patch("every_python.main.build_python")
@@ -358,7 +358,11 @@ class TestBisectCommand:
 
         builds_dir = tmp_path / "builds"
 
-        def resolve_side_effect(ref: str, repo: str | None = None) -> str:
+        def resolve_side_effect(
+            ref: str,
+            repo: str | None = None,
+            reference_repo: Path | None = None,
+        ) -> str:
             if ref == "good-ref":
                 return "abc123d"
             elif ref == "bad-ref":
