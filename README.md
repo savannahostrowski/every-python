@@ -281,14 +281,16 @@ sys.exit(0)  # Feature doesn't exist - mark as "good"
 
 ```
 ~/.every-python/
-├── cpython/          # Blobless clone of CPython repository
-└── builds/           # Cached builds
-    ├── abc123d/              # Build for commit abc123d
-    ├── abc123d-jit/          # JIT build
-    ├── abc123d-pgo/          # PGO + LTO build
-    ├── abc123d-nogil/        # Free-threaded build
+├── cpython/                    # Managed clone of upstream python/cpython
+├── repos/                      # Managed clones of custom repositories
+│   └── cpython-<hash>/         # One directory per custom repository
+└── builds/                     # Cached builds with repository metadata
+    ├── abc123d/                # Build for commit abc123d
+    ├── abc123d-jit/            # JIT build
+    ├── abc123d-pgo/            # PGO + LTO build
+    ├── abc123d-nogil/          # Free-threaded build
     ├── abc123d-jit-pgo-nogil/  # All flags combined
-    └── def456e/              # Build for commit def456e
+    └── def456e/                # Build for commit def456e
 ```
 
 ## License
