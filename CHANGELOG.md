@@ -7,9 +7,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-21
+
 * ⚡️ Add reference cloning support. PR [#58](https://github.com/savannahostrowski/every-python/pull/58) by [@savannahostrowski](https://github.com/savannahostrowski).
 * ✨ Add support for custom CPython repositories. PR [#57](https://github.com/savannahostrowski/every-python/pull/57) by [@savannahostrowski](https://github.com/savannahostrowski).
 * 📝 Add automated changelog updates. PR [#56](https://github.com/savannahostrowski/every-python/pull/56) by [@savannahostrowski](https://github.com/savannahostrowski).
+
 ### Added
 
 - Add `--reference-repo` and `EVERY_PYTHON_REFERENCE_REPO` to accelerate
@@ -58,7 +61,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - Locate older `python3.0` binaries correctly.
 
-[Unreleased]: https://github.com/savannahostrowski/every-python/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/savannahostrowski/every-python/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/savannahostrowski/every-python/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/savannahostrowski/every-python/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/savannahostrowski/every-python/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/savannahostrowski/every-python/compare/v0.4.1...v0.5.0
