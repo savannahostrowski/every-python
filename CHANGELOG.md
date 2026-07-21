@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+* 🔖 Bump for 0.7.0 release. PR [#59](https://github.com/savannahostrowski/every-python/pull/59) by [@savannahostrowski](https://github.com/savannahostrowski).
+
 ## [0.7.0] - 2026-07-21
 
 * ⚡️ Add reference cloning support. PR [#58](https://github.com/savannahostrowski/every-python/pull/58) by [@savannahostrowski](https://github.com/savannahostrowski).
