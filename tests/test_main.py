@@ -7,6 +7,7 @@ import typer
 from typer.testing import CliRunner
 
 from every_python.main import (
+    BuildOptions,
     _ensure_repo,
     _get_configure_args,
     _resolve_ref,
@@ -118,9 +119,7 @@ class TestInstallCommand:
         assert result.exit_code == 0
         assert "abc123d" in result.stdout
         mock_resolve.assert_called_once_with("main")
-        mock_build.assert_called_once_with(
-            "abc123def456", enable_jit=False, verbose=False, enable_pgo=False, enable_nogil=False
-        )
+        mock_build.assert_called_once_with("abc123def456", BuildOptions())
 
     @patch("every_python.main.build_python")
     @patch("every_python.main._resolve_ref")
@@ -135,7 +134,7 @@ class TestInstallCommand:
 
         assert result.exit_code == 0
         mock_build.assert_called_once_with(
-            "abc123def456", enable_jit=True, verbose=False, enable_pgo=False, enable_nogil=False
+            "abc123def456", BuildOptions(flags=frozenset({"jit"}))
         )
 
     @patch("every_python.main.build_python")
@@ -151,7 +150,7 @@ class TestInstallCommand:
 
         assert result.exit_code == 0
         mock_build.assert_called_once_with(
-            "abc123def456", enable_jit=False, verbose=False, enable_pgo=True, enable_nogil=False
+            "abc123def456", BuildOptions(flags=frozenset({"pgo"}))
         )
 
     @patch("every_python.main.build_python")
@@ -167,11 +166,7 @@ class TestInstallCommand:
 
         assert result.exit_code == 0
         mock_build.assert_called_once_with(
-            "abc123def456",
-            enable_jit=False,
-            verbose=False,
-            enable_pgo=False,
-            enable_nogil=True,
+            "abc123def456", BuildOptions(flags=frozenset({"nogil"}))
         )
 
     @patch("every_python.main.build_python")
@@ -186,9 +181,7 @@ class TestInstallCommand:
         result = runner.invoke(app, ["install", "main", "--verbose"])
 
         assert result.exit_code == 0
-        mock_build.assert_called_once_with(
-            "abc123def456", enable_jit=False, verbose=True, enable_pgo=False, enable_nogil=False
-        )
+        mock_build.assert_called_once_with("abc123def456", BuildOptions(verbose=True))
 
 
 class TestRunCommand:
@@ -247,9 +240,7 @@ class TestRunCommand:
             runner.invoke(app, ["run", "main", "--", "python", "--version"])
 
             # Should build the version
-            mock_build.assert_called_once_with(
-                "abc123def456", enable_jit=False, enable_pgo=False, enable_nogil=False
-            )
+            mock_build.assert_called_once_with("abc123def456", BuildOptions())
 
 
 class TestListBuildsCommand:

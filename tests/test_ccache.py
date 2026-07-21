@@ -5,7 +5,7 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
-from every_python.main import _get_ccache_env, app
+from every_python.main import BuildOptions, _get_ccache_env, app
 
 runner = CliRunner()
 
@@ -21,9 +21,7 @@ def test_install_with_ccache(
     result = runner.invoke(app, ["install", "main", "--ccache"])
 
     assert result.exit_code == 0
-    mock_build.assert_called_once()
-    assert mock_build.call_args.args == ("abc123def456",)
-    assert mock_build.call_args.kwargs["enable_ccache"] is True
+    mock_build.assert_called_once_with("abc123def456", BuildOptions(ccache=True))
 
 
 @patch("every_python.main.shutil.which", return_value="/opt/homebrew/bin/ccache")
