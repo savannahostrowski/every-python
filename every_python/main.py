@@ -48,6 +48,7 @@ class BuildOptions:
     jobs: int | None = None
     verbose: bool = False
     repo: str | None = None
+    reference_repo: Path | None = None
 
 
 def _build_options(
@@ -58,6 +59,7 @@ def _build_options(
     ccache: bool | None,
     jobs: int | None,
     repo: str | None = None,
+    reference_repo: Path | None = None,
     verbose: bool = False,
 ) -> BuildOptions:
     """Create build options from CLI values."""
@@ -67,6 +69,7 @@ def _build_options(
         jobs=jobs,
         verbose=verbose,
         repo=repo,
+        reference_repo=reference_repo,
     )
 
 
@@ -131,7 +134,7 @@ def _repo_dir(repo: str | None) -> Path:
     return REPOS_DIR / f"{safe_name}-{digest}"
 
 
-def _ensure_repo(repo: str | None = None) -> Path:
+def _ensure_repo(repo: str | None = None, reference_repo: Path | None = None) -> Path:
     """Ensure CPython repo exists as a blobless clone."""
     repo_dir = _repo_dir(repo)
     repo_url = _normalize_repo(repo)
@@ -140,16 +143,30 @@ def _ensure_repo(repo: str | None = None) -> Path:
         output = get_output()
 
         output.warning(f"First-time setup: cloning {repo_url}...")
-        output.info(
-            "This will download ~200MB and only needs to happen once per version."
-        )
+        if reference_repo is not None:
+            output.info(
+                f"Reusing Git objects from {reference_repo.expanduser()} "
+                "(the managed clone will remain independent)."
+            )
+        else:
+            output.info("This one-time setup creates a managed blobless clone.")
 
         repo_dir.parent.mkdir(parents=True, exist_ok=True)
 
+        clone_args = ["git", "clone", "--filter=blob:none"]
+        if reference_repo is not None:
+            clone_args.extend(
+                [
+                    "--reference-if-able",
+                    str(reference_repo.expanduser()),
+                    "--dissociate",
+                ]
+            )
+
+        clone_args.extend([repo_url, str(repo_dir)])
+
         # Blobless clone to save space and time
-        result: CommandResult = runner.run(
-            ["git", "clone", "--filter=blob:none", repo_url, str(repo_dir)]
-        )
+        result: CommandResult = runner.run(clone_args)
 
         if not result.success:
             output.error(f"Failed to clone CPython: {result.stderr}")
@@ -205,9 +222,11 @@ def _record_build_repository(build_dir: Path, repo: str | None) -> None:
         )
 
 
-def _resolve_ref(ref: str, repo: str | None = None) -> str:
+def _resolve_ref(
+    ref: str, repo: str | None = None, reference_repo: Path | None = None
+) -> str:
     """Resolve a git ref (tag, branch, commit) to a full commit hash."""
-    repo_dir = _ensure_repo(repo)
+    repo_dir = _ensure_repo(repo, reference_repo)
     runner = get_runner()
     output = get_output()
 
@@ -510,7 +529,7 @@ def build_python(
     options: BuildOptions = BuildOptions(),
 ) -> Path:
     """Build Python at the given commit."""
-    repo_dir = _ensure_repo(options.repo)
+    repo_dir = _ensure_repo(options.repo, options.reference_repo)
     runner = get_runner()
     output = get_output()
 
@@ -652,6 +671,14 @@ def install(
         str | None,
         typer.Option("--repo", help="CPython fork URL or GitHub owner/repository"),
     ] = None,
+    reference_repo: Annotated[
+        Path | None,
+        typer.Option(
+            "--reference-repo",
+            envvar="EVERY_PYTHON_REFERENCE_REPO",
+            help="Local CPython clone to borrow Git objects from during setup",
+        ),
+    ] = None,
     verbose: Annotated[
         bool, typer.Option("--verbose", help="Show build output")
     ] = False,
@@ -666,9 +693,10 @@ def install(
             ccache=ccache,
             jobs=jobs,
             repo=repo,
+            reference_repo=reference_repo,
             verbose=verbose,
         )
-        commit = _resolve_ref(ref, options.repo)
+        commit = _resolve_ref(ref, options.repo, options.reference_repo)
         output.info(f"Resolved '{ref}' to commit {commit[:7]}")
         build_dir = build_python(commit, options)
 
@@ -726,14 +754,28 @@ def run(
         str | None,
         typer.Option("--repo", help="CPython fork URL or GitHub owner/repository"),
     ] = None,
+    reference_repo: Annotated[
+        Path | None,
+        typer.Option(
+            "--reference-repo",
+            envvar="EVERY_PYTHON_REFERENCE_REPO",
+            help="Local CPython clone to borrow Git objects from during setup",
+        ),
+    ] = None,
 ):
     """Run a command with a specific Python version."""
     output = get_output()
     try:
         options = _build_options(
-            jit=jit, pgo=pgo, nogil=nogil, ccache=ccache, jobs=jobs, repo=repo
+            jit=jit,
+            pgo=pgo,
+            nogil=nogil,
+            ccache=ccache,
+            jobs=jobs,
+            repo=repo,
+            reference_repo=reference_repo,
         )
-        commit = _resolve_ref(ref, options.repo)
+        commit = _resolve_ref(ref, options.repo, options.reference_repo)
         build_info = BuildInfo(commit=commit, flags=options.flags)
         build_dir = build_info.get_path(BUILDS_DIR)
 
@@ -881,6 +923,14 @@ def clean(
         str | None,
         typer.Option("--repo", help="CPython fork URL or GitHub owner/repository"),
     ] = None,
+    reference_repo: Annotated[
+        Path | None,
+        typer.Option(
+            "--reference-repo",
+            envvar="EVERY_PYTHON_REFERENCE_REPO",
+            help="Local CPython clone to borrow Git objects from during setup",
+        ),
+    ] = None,
 ):
     """Remove built Python versions to free up space."""
     output = get_output()
@@ -892,7 +942,7 @@ def clean(
             output.warning("No builds to remove")
     elif ref:
         try:
-            commit = _resolve_ref(ref, repo)
+            commit = _resolve_ref(ref, repo, reference_repo)
 
             removed: list[str] = []
             for flags in _all_flag_combos():
@@ -949,6 +999,14 @@ def bisect(
         str | None,
         typer.Option("--repo", help="CPython fork URL or GitHub owner/repository"),
     ] = None,
+    reference_repo: Annotated[
+        Path | None,
+        typer.Option(
+            "--reference-repo",
+            envvar="EVERY_PYTHON_REFERENCE_REPO",
+            help="Local CPython clone to borrow Git objects from during setup",
+        ),
+    ] = None,
 ):
     """
     Use git bisect to find the commit that introduced a bug.
@@ -962,18 +1020,24 @@ def bisect(
     runner = get_runner()
     output = get_output()
     options = _build_options(
-        jit=jit, pgo=pgo, nogil=nogil, ccache=ccache, jobs=jobs, repo=repo
+        jit=jit,
+        pgo=pgo,
+        nogil=nogil,
+        ccache=ccache,
+        jobs=jobs,
+        repo=repo,
+        reference_repo=reference_repo,
     )
-    repo_dir = _ensure_repo(options.repo)
+    repo_dir = _ensure_repo(options.repo, options.reference_repo)
 
     try:
         # Resolve refs to commits
         output.info(f"\nResolving good commit: {good}")
-        good_commit = _resolve_ref(good, options.repo)
+        good_commit = _resolve_ref(good, options.repo, options.reference_repo)
         output.info(f"  → {good_commit[:7]}")
 
         output.info(f"Resolving bad commit: {bad}")
-        bad_commit = _resolve_ref(bad, options.repo)
+        bad_commit = _resolve_ref(bad, options.repo, options.reference_repo)
         output.info(f"  → {bad_commit[:7]}")
 
         # Start bisect

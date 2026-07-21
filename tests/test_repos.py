@@ -113,7 +113,7 @@ def test_install_propagates_custom_repository(
     )
 
     assert result.exit_code == 0
-    mock_resolve.assert_called_once_with("8639e50", "LazyImportsCabal/cpython")
+    mock_resolve.assert_called_once_with("8639e50", "LazyImportsCabal/cpython", None)
     mock_build.assert_called_once_with(
         "abc123def456", BuildOptions(repo="LazyImportsCabal/cpython")
     )
