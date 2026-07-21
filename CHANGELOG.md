@@ -7,6 +7,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+* ⚡️ Add reference cloning support. PR [#58](https://github.com/savannahostrowski/every-python/pull/58) by [@savannahostrowski](https://github.com/savannahostrowski).
 * ✨ Add support for custom CPython repositories. PR [#57](https://github.com/savannahostrowski/every-python/pull/57) by [@savannahostrowski](https://github.com/savannahostrowski).
 * 📝 Add automated changelog updates. PR [#56](https://github.com/savannahostrowski/every-python/pull/56) by [@savannahostrowski](https://github.com/savannahostrowski).
 ### Added
