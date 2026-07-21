@@ -2,6 +2,8 @@
 
 Build and run any commit of CPython, inspired by [every-ts](https://github.com/jakebailey/every-ts).
 
+See the [changelog](CHANGELOG.md) for release notes and version comparisons.
+
 ## Why does this exist?
 
 Building CPython from source is time-consuming. `every-python` makes it easy to:
