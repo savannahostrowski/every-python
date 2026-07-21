@@ -1,6 +1,7 @@
 import multiprocessing
 import os
 import platform
+import shlex
 import shutil
 import subprocess
 from collections.abc import Iterator
@@ -227,6 +228,32 @@ def _windows_pcbuild_subdir(plat: str) -> str:
     return {"ARM64": "arm64", "Win32": "win32", "x64": "amd64"}[plat]
 
 
+def _get_ccache_env() -> dict[str, str]:
+    """Return a build environment that compiles through ccache."""
+    output = get_output()
+    if platform.system() == "Windows":
+        output.error("--ccache is currently supported on macOS and Linux only")
+        raise typer.Exit(1)
+
+    ccache = shutil.which("ccache")
+    if not ccache:
+        output.error("ccache was not found in PATH")
+        output.info(
+            "Install it with: brew install ccache (macOS) or your Linux package manager"
+        )
+        raise typer.Exit(1)
+
+    compiler = os.environ.get("CC") or (
+        "clang" if platform.system() == "Darwin" else "cc"
+    )
+    compiler_command = shlex.split(compiler)
+    if compiler_command and Path(compiler_command[0]).name == "ccache":
+        cached_compiler = compiler
+    else:
+        cached_compiler = f"{ccache} {compiler}"
+    return {**os.environ, "CC": cached_compiler}
+
+
 def _run_clean_repo(
     runner: CommandRunner,
     verbose: bool,
@@ -261,6 +288,7 @@ def _run_configure(
     verbose: bool,
     progress: Progress,
     task: TaskID,
+    build_env: dict[str, str] | None = None,
 ) -> None:
     """Run the configure step."""
     output = get_output()
@@ -272,7 +300,12 @@ def _run_configure(
     else:
         progress.update(task, description="Configuring build...")
 
-    result = runner.run(configure_args, cwd=REPO_DIR, capture_output=not verbose)
+    result = runner.run(
+        configure_args,
+        cwd=REPO_DIR,
+        capture_output=not verbose,
+        env=build_env,
+    )
 
     if not result.success:
         if not verbose:
@@ -308,7 +341,11 @@ def _build_and_install_windows(
 
 
 def _build_and_install_unix(
-    runner: CommandRunner, verbose: bool, progress: Progress, task: TaskID
+    runner: CommandRunner,
+    verbose: bool,
+    progress: Progress,
+    task: TaskID,
+    build_env: dict[str, str] | None = None,
 ) -> None:
     """Build and install on Unix systems using make."""
     output = get_output()
@@ -325,7 +362,10 @@ def _build_and_install_unix(
 
     # Build
     make_result = runner.run(
-        ["make", f"-j{ncpu}"], cwd=REPO_DIR, capture_output=not verbose
+        ["make", f"-j{ncpu}"],
+        cwd=REPO_DIR,
+        capture_output=not verbose,
+        env=build_env,
     )
 
     if not make_result.success:
@@ -338,7 +378,7 @@ def _build_and_install_unix(
 
     # Install
     progress.update(task, description="Installing...")
-    install_result = runner.run(["make", "install"], cwd=REPO_DIR)
+    install_result = runner.run(["make", "install"], cwd=REPO_DIR, env=build_env)
 
     if not install_result.success:
         progress.stop()
@@ -352,6 +392,7 @@ def build_python(
     verbose: bool = False,
     enable_pgo: bool = False,
     enable_nogil: bool = False,
+    enable_ccache: bool = False,
 ) -> Path:
     """Build Python at the given commit."""
     _ensure_repo()
@@ -389,12 +430,16 @@ def build_python(
             )
             shutil.rmtree(build_dir)
 
+    build_env = _get_ccache_env() if enable_ccache else None
+
     if enable_jit:
         output.status(f"Building with JIT (LLVM {llvm_version})")
     if enable_pgo:
         output.status("Building with PGO")
     if enable_nogil:
         output.status("Building with GIL disabled (free-threaded)")
+    if enable_ccache:
+        output.status("Building with ccache")
 
     with create_progress(console) as progress:
         # Checkout
@@ -410,13 +455,21 @@ def build_python(
         _run_clean_repo(runner, verbose, progress, task)
 
         # Configure
-        _run_configure(runner, build_dir, build_info.flags, verbose, progress, task)
+        _run_configure(
+            runner,
+            build_dir,
+            build_info.flags,
+            verbose,
+            progress,
+            task,
+            build_env,
+        )
 
         # Build and install (platform-specific)
         if platform.system() == "Windows":
             _build_and_install_windows(build_dir, verbose, progress, task)
         else:
-            _build_and_install_unix(runner, verbose, progress, task)
+            _build_and_install_unix(runner, verbose, progress, task, build_env)
 
         # Validate that the build produced a Python binary
         python_bin = python_binary_location(BUILDS_DIR, build_info)
@@ -445,6 +498,9 @@ def install(
     nogil: Annotated[
         bool, typer.Option("--nogil", help="Build with GIL disabled")
     ] = False,
+    ccache: Annotated[
+        bool, typer.Option("--ccache", help="Cache compilation results with ccache")
+    ] = False,
     verbose: Annotated[
         bool, typer.Option("--verbose", help="Show build output")
     ] = False,
@@ -455,13 +511,15 @@ def install(
         commit = _resolve_ref(ref)
         output.info(f"Resolved '{ref}' to commit {commit[:7]}")
 
-        build_dir = build_python(
-            commit,
-            enable_jit=jit,
-            verbose=verbose,
-            enable_pgo=pgo,
-            enable_nogil=nogil,
-        )
+        build_options = {
+            "enable_jit": jit,
+            "verbose": verbose,
+            "enable_pgo": pgo,
+            "enable_nogil": nogil,
+        }
+        if ccache:
+            build_options["enable_ccache"] = True
+        build_dir = build_python(commit, **build_options)
 
         output.success(f"\nSuccessfully built CPython {commit[:7]}")
         output.info(f"Location: {build_dir}")
@@ -496,6 +554,10 @@ def run(
     nogil: Annotated[
         bool, typer.Option("--nogil", help="Use free-threaded build")
     ] = False,
+    ccache: Annotated[
+        bool,
+        typer.Option("--ccache", help="Use ccache if an automatic build is needed"),
+    ] = False,
 ):
     """Run a command with a specific Python version."""
     output = get_output()
@@ -508,9 +570,14 @@ def run(
             output.warning(
                 f"Build for {ref}{build_info.suffix} not found, building now..."
             )
-            build_dir = build_python(
-                commit, enable_jit=jit, enable_pgo=pgo, enable_nogil=nogil
-            )
+            build_options = {
+                "enable_jit": jit,
+                "enable_pgo": pgo,
+                "enable_nogil": nogil,
+            }
+            if ccache:
+                build_options["enable_ccache"] = True
+            build_dir = build_python(commit, **build_options)
 
         python_bin = python_binary_location(BUILDS_DIR, build_info)
 
@@ -680,6 +747,9 @@ def bisect(
     nogil: Annotated[
         bool, typer.Option("--nogil", help="Build with GIL disabled")
     ] = False,
+    ccache: Annotated[
+        bool, typer.Option("--ccache", help="Cache compilation results with ccache")
+    ] = False,
 ):
     """
     Use git bisect to find the commit that introduced a bug.
@@ -759,12 +829,14 @@ def bisect(
 
             # Build this commit (build_python handles incomplete builds internally)
             try:
-                build_python(
-                    current_commit,
-                    enable_jit=jit,
-                    enable_pgo=pgo,
-                    enable_nogil=nogil,
-                )
+                build_options = {
+                    "enable_jit": jit,
+                    "enable_pgo": pgo,
+                    "enable_nogil": nogil,
+                }
+                if ccache:
+                    build_options["enable_ccache"] = True
+                build_python(current_commit, **build_options)
                 build_info = BuildInfo(
                     commit=current_commit,
                     flags=_flags_from_bools(jit, pgo, nogil),
