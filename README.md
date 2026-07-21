@@ -65,7 +65,30 @@ every-python install abc123d
 
 # Show build output (useful for debugging build failures)
 every-python install main --verbose
+
+# Limit parallel compilation and installation to 8 jobs
+every-python install main --jobs 8
 ```
+
+### Reuse compilation results with ccache
+
+On macOS and Linux, use [`ccache`](https://ccache.dev/) to make builds of nearby
+commits substantially faster:
+
+```bash
+# macOS
+brew install ccache
+
+# Build using the compiler cache
+every-python install main --ccache
+```
+
+The first build populates the cache. Later builds reuse unchanged compilation
+results even though every-python cleans its CPython checkout between builds.
+The option also works with automatic builds from `run` and with `bisect`.
+Every-python respects an existing `CC` setting and otherwise uses Clang on
+macOS or the default C compiler on Linux. `--ccache` is not currently supported
+on Windows.
 
 ### Run Python with a specific version
 
