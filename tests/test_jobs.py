@@ -38,6 +38,7 @@ def test_build_uses_requested_jobs_and_install_is_serial() -> None:
 
     _build_and_install_unix(
         command_runner,
+        repo_dir=Path("/tmp/cpython"),
         verbose=False,
         progress=progress,
         task=TaskID(1),

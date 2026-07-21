@@ -15,6 +15,7 @@ Building CPython from source is time-consuming. `every-python` makes it easy to:
 ## Features
 
 - **Build any CPython commit** - main, release tags, or specific commits
+- **Build from CPython forks** - Use a GitHub `owner/repository` or full Git URL
 - **Build with experimental JIT support** - Build with `--enable-experimental-jit` (includes LLVM version detection)
 - **Build with PGO + LTO** - Optimized release builds via `--pgo`
 - **Build free-threaded (no-GIL)** - Build with `--disable-gil` via `--nogil` (3.13+)
@@ -71,6 +72,24 @@ every-python install main --verbose
 # Limit parallel compilation to 8 jobs
 every-python install main --jobs 8
 ```
+
+### Build from a CPython fork
+
+Pass `--repo` with a GitHub `owner/repository` or a full Git URL:
+
+```bash
+every-python install 8639e50 --repo LazyImportsCabal/cpython
+every-python install 8639e50 --repo https://github.com/LazyImportsCabal/cpython.git
+every-python run 8639e50 --repo LazyImportsCabal/cpython -- python --version
+```
+
+Without `--repo`, every-python continues to use the upstream
+`python/cpython` repository. Each custom repository is cloned separately under
+`~/.every-python/repos/`; builds are still cached by commit and build flags.
+`--repo` is also supported by `clean` and `bisect` when resolving refs from a
+fork. `list-builds` shows the repository provenance recorded for new builds;
+builds created by older every-python versions are shown as upstream `python`
+builds because custom repositories were not previously supported.
 
 ### Reuse compilation results with ccache
 
