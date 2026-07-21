@@ -118,7 +118,7 @@ class TestInstallCommand:
 
         assert result.exit_code == 0
         assert "abc123d" in result.stdout
-        mock_resolve.assert_called_once_with("main")
+        mock_resolve.assert_called_once_with("main", None)
         mock_build.assert_called_once_with("abc123def456", BuildOptions())
 
     @patch("every_python.main.build_python")
@@ -282,10 +282,10 @@ class TestListBuildsCommand:
             if "--version" in cmd:
                 return Mock(returncode=0, stdout="Python 3.14.0a1+", stderr="")
             elif "git" in cmd and "log" in cmd:
-                # Format: hash|timestamp|subject (matching --format=%H|%at|%s)
+                # Format: hash|subject (matching --format=%H|%s)
                 return Mock(
                     returncode=0,
-                    stdout="abc123d|1234567890|Test commit\ndef456a|1234567891|Test commit JIT",
+                    stdout="abc123d|Test commit\ndef456a|Test commit JIT",
                     stderr="",
                 )
             return Mock(returncode=0, stdout="", stderr="")
@@ -301,6 +301,7 @@ class TestListBuildsCommand:
             assert result.exit_code == 0
             assert "abc123d" in result.stdout
             assert "def456a" in result.stdout
+            assert "python" in result.stdout
 
 
 class TestCleanCommand:
@@ -357,7 +358,7 @@ class TestBisectCommand:
 
         builds_dir = tmp_path / "builds"
 
-        def resolve_side_effect(ref: str) -> str:
+        def resolve_side_effect(ref: str, repo: str | None = None) -> str:
             if ref == "good-ref":
                 return "abc123d"
             elif ref == "bad-ref":

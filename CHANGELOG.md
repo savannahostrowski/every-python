@@ -10,6 +10,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 * 📝 Add automated changelog updates. PR [#56](https://github.com/savannahostrowski/every-python/pull/56) by [@savannahostrowski](https://github.com/savannahostrowski).
 ### Added
 
+- Add `--repo` support for building and bisecting CPython forks.
 - Add optional compiler caching with `--ccache` on macOS and Linux.
 - Add `--jobs` to control parallel compilation for Unix builds.
 - Add `--version` to display the installed every-python version.

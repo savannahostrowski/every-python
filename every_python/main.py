@@ -1,13 +1,15 @@
+import hashlib
+import json
 import multiprocessing
 import os
 import platform
+import re
 import shlex
 import shutil
 import subprocess
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import datetime
 from itertools import combinations
 from pathlib import Path
 
@@ -15,10 +17,11 @@ import typer
 from rich.console import Console
 from rich.progress import Progress, TaskID
 from rich.table import Table
+from rich.text import Text
 from typing_extensions import Annotated
 
 from every_python import __version__
-from every_python.output import create_progress, get_output, jit_indicator
+from every_python.output import create_progress, get_output
 from every_python.runner import CommandResult, CommandRunner, get_runner
 from every_python.utils import (
     BUILD_FLAGS,
@@ -44,6 +47,7 @@ class BuildOptions:
     ccache: bool | None = None
     jobs: int | None = None
     verbose: bool = False
+    repo: str | None = None
 
 
 def _build_options(
@@ -53,6 +57,7 @@ def _build_options(
     nogil: bool,
     ccache: bool | None,
     jobs: int | None,
+    repo: str | None = None,
     verbose: bool = False,
 ) -> BuildOptions:
     """Create build options from CLI values."""
@@ -61,6 +66,7 @@ def _build_options(
         ccache=ccache,
         jobs=jobs,
         verbose=verbose,
+        repo=repo,
     )
 
 
@@ -99,26 +105,50 @@ def main(
 
 BASE_DIR = Path.home() / ".every-python"
 REPO_DIR = BASE_DIR / "cpython"
+REPOS_DIR = BASE_DIR / "repos"
 BUILDS_DIR = BASE_DIR / "builds"
 CPYTHON_REPO = "https://github.com/python/cpython.git"
+BUILD_METADATA_FILE = ".every-python.json"
 
 
-def _ensure_repo() -> Path:
+def _normalize_repo(repo: str | None) -> str:
+    """Normalize GitHub shorthand while preserving full Git URLs."""
+    if repo is None:
+        return CPYTHON_REPO
+    if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+        return f"https://github.com/{repo.removesuffix('.git')}.git"
+    return repo
+
+
+def _repo_dir(repo: str | None) -> Path:
+    """Return the managed clone directory for a repository."""
+    if repo is None:
+        return REPO_DIR
+    url = _normalize_repo(repo)
+    name = Path(url.rstrip("/")).name.removesuffix(".git") or "cpython"
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "-", name)
+    digest = hashlib.sha256(url.encode()).hexdigest()[:12]
+    return REPOS_DIR / f"{safe_name}-{digest}"
+
+
+def _ensure_repo(repo: str | None = None) -> Path:
     """Ensure CPython repo exists as a blobless clone."""
-    if not REPO_DIR.exists():
+    repo_dir = _repo_dir(repo)
+    repo_url = _normalize_repo(repo)
+    if not repo_dir.exists():
         runner: CommandRunner = get_runner()
         output = get_output()
 
-        output.warning("First-time setup: cloning CPython repository...")
+        output.warning(f"First-time setup: cloning {repo_url}...")
         output.info(
             "This will download ~200MB and only needs to happen once per version."
         )
 
-        BASE_DIR.mkdir(parents=True, exist_ok=True)
+        repo_dir.parent.mkdir(parents=True, exist_ok=True)
 
         # Blobless clone to save space and time
         result: CommandResult = runner.run(
-            ["git", "clone", "--filter=blob:none", CPYTHON_REPO, str(REPO_DIR)]
+            ["git", "clone", "--filter=blob:none", repo_url, str(repo_dir)]
         )
 
         if not result.success:
@@ -127,25 +157,70 @@ def _ensure_repo() -> Path:
 
         output.success("Repository cloned successfully")
 
-    return REPO_DIR
+    return repo_dir
 
 
-def _resolve_ref(ref: str) -> str:
+def _managed_repo_dirs() -> list[Path]:
+    """Return all existing managed CPython clones."""
+    repo_dirs = [REPO_DIR] if REPO_DIR.exists() else []
+    if REPOS_DIR.exists():
+        repo_dirs.extend(path for path in REPOS_DIR.iterdir() if path.is_dir())
+    return repo_dirs
+
+
+def _repository_label(repo_url: str) -> str:
+    """Return a compact label for common GitHub repository URLs."""
+    match = re.fullmatch(r"https://github\.com/([^/]+)/[^/]+?(?:\.git)?", repo_url)
+    return match.group(1) if match else repo_url
+
+
+def _commit_link(commit: str, repo_url: str) -> Text:
+    """Return a linked short commit hash for GitHub repositories."""
+    match = re.fullmatch(r"https://github\.com/([^/]+/[^/]+?)(?:\.git)?", repo_url)
+    url = f"https://github.com/{match.group(1)}/commit/{commit}" if match else None
+    return Text(commit[:7], style=f"bright_magenta underline link {url}" if url else "")
+
+
+def _build_repositories(build_dir: Path) -> list[str]:
+    """Read repository provenance recorded for a build."""
+    metadata_path = build_dir / BUILD_METADATA_FILE
+    try:
+        metadata = json.loads(metadata_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return []
+    repositories = metadata.get("repositories", [])
+    if not isinstance(repositories, list):
+        return []
+    return [repo for repo in repositories if isinstance(repo, str)]
+
+
+def _record_build_repository(build_dir: Path, repo: str | None) -> None:
+    """Add a repository to a build's provenance metadata."""
+    repo_url = _normalize_repo(repo)
+    repositories = _build_repositories(build_dir)
+    if repo_url not in repositories:
+        repositories.append(repo_url)
+        (build_dir / BUILD_METADATA_FILE).write_text(
+            json.dumps({"repositories": repositories}, indent=2) + "\n"
+        )
+
+
+def _resolve_ref(ref: str, repo: str | None = None) -> str:
     """Resolve a git ref (tag, branch, commit) to a full commit hash."""
-    _ensure_repo()
+    repo_dir = _ensure_repo(repo)
     runner = get_runner()
     output = get_output()
 
     # Fetch latest refs
-    runner.run_git(["fetch", "--tags", "--quiet"], REPO_DIR)
+    runner.run_git(["fetch", "--tags", "--quiet"], repo_dir)
 
     # Try to resolve the ref
-    result = runner.run_git(["rev-parse", "--verify", f"{ref}^{{commit}}"], REPO_DIR)
+    result = runner.run_git(["rev-parse", "--verify", f"{ref}^{{commit}}"], repo_dir)
 
     if not result.success:
         # Try with origin/ prefix
         result = runner.run_git(
-            ["rev-parse", "--verify", f"origin/{ref}^{{commit}}"], REPO_DIR
+            ["rev-parse", "--verify", f"origin/{ref}^{{commit}}"], repo_dir
         )
 
         if not result.success:
@@ -289,6 +364,7 @@ def _get_ccache_env(*, required: bool = False) -> dict[str, str] | None:
 
 def _run_clean_repo(
     runner: CommandRunner,
+    repo_dir: Path,
     verbose: bool,
     progress: Progress,
     task: TaskID,
@@ -303,7 +379,7 @@ def _run_clean_repo(
     else:
         progress.update(task, description="Cleaning repo...")
 
-    result = runner.run_git(args, repo_dir=REPO_DIR)
+    result = runner.run_git(args, repo_dir=repo_dir)
 
     if not result.success:
         if not verbose:
@@ -316,6 +392,7 @@ def _run_clean_repo(
 
 def _run_configure(
     runner: CommandRunner,
+    repo_dir: Path,
     build_dir: Path,
     flags: frozenset[str],
     verbose: bool,
@@ -335,7 +412,7 @@ def _run_configure(
 
     result = runner.run(
         configure_args,
-        cwd=REPO_DIR,
+        cwd=repo_dir,
         capture_output=not verbose,
         env=build_env,
     )
@@ -350,7 +427,11 @@ def _run_configure(
 
 
 def _build_and_install_windows(
-    build_dir: Path, verbose: bool, progress: Progress, task: TaskID
+    repo_dir: Path,
+    build_dir: Path,
+    verbose: bool,
+    progress: Progress,
+    task: TaskID,
 ) -> None:
     """Build and install on Windows by copying PCbuild output."""
     output = get_output()
@@ -358,7 +439,7 @@ def _build_and_install_windows(
 
     # Find build output directory matching the host architecture
     plat = _windows_build_platform()
-    pcbuild_dir = REPO_DIR / "PCbuild" / _windows_pcbuild_subdir(plat)
+    pcbuild_dir = repo_dir / "PCbuild" / _windows_pcbuild_subdir(plat)
 
     if not pcbuild_dir.exists():
         progress.stop()
@@ -375,6 +456,7 @@ def _build_and_install_windows(
 
 def _build_and_install_unix(
     runner: CommandRunner,
+    repo_dir: Path,
     verbose: bool,
     progress: Progress,
     task: TaskID,
@@ -397,7 +479,7 @@ def _build_and_install_unix(
     # Build
     make_result = runner.run(
         ["make", f"-j{ncpu}"],
-        cwd=REPO_DIR,
+        cwd=repo_dir,
         capture_output=not verbose,
         env=build_env,
     )
@@ -415,7 +497,7 @@ def _build_and_install_unix(
     # CPython's install target is not parallel-safe: multiple rules can race to
     # create the same destination directory. Keep compilation parallel and
     # installation serial.
-    install_result = runner.run(["make", "install"], cwd=REPO_DIR, env=build_env)
+    install_result = runner.run(["make", "install"], cwd=repo_dir, env=build_env)
 
     if not install_result.success:
         progress.stop()
@@ -428,7 +510,7 @@ def build_python(
     options: BuildOptions = BuildOptions(),
 ) -> Path:
     """Build Python at the given commit."""
-    _ensure_repo()
+    repo_dir = _ensure_repo(options.repo)
     runner = get_runner()
     output = get_output()
 
@@ -436,12 +518,12 @@ def build_python(
     llvm_version: str | None = None
     flags = set(options.flags)
     if "jit" in flags:
-        jit_enabled, llvm_version = _resolve_jit_availability(commit, REPO_DIR)
+        jit_enabled, llvm_version = _resolve_jit_availability(commit, repo_dir)
         if not jit_enabled:
             flags.remove("jit")
 
     # Check free-threading availability if requested
-    if "nogil" in flags and not _resolve_nogil_availability(commit, REPO_DIR):
+    if "nogil" in flags and not _resolve_nogil_availability(commit, repo_dir):
         flags.remove("nogil")
 
     # Determine build directory based on final flags (after availability checks)
@@ -452,6 +534,7 @@ def build_python(
     if build_dir.exists():
         python_bin = python_binary_location(BUILDS_DIR, build_info)
         if python_bin.exists():
+            _record_build_repository(build_dir, options.repo)
             output.success(
                 f"Build {commit[:7]}{build_info.suffix} already exists, skipping build"
             )
@@ -487,7 +570,7 @@ def build_python(
     with create_progress(console) as progress:
         # Checkout
         task = progress.add_task(f"Checking out {commit[:7]}...", total=None)
-        result = runner.run_git(["checkout", commit], REPO_DIR)
+        result = runner.run_git(["checkout", commit], repo_dir)
 
         if not result.success:
             progress.stop()
@@ -495,11 +578,12 @@ def build_python(
             raise typer.Exit(1)
 
         # Clean repo
-        _run_clean_repo(runner, options.verbose, progress, task)
+        _run_clean_repo(runner, repo_dir, options.verbose, progress, task)
 
         # Configure
         _run_configure(
             runner,
+            repo_dir,
             build_dir,
             build_info.flags,
             options.verbose,
@@ -510,10 +594,13 @@ def build_python(
 
         # Build and install (platform-specific)
         if platform.system() == "Windows":
-            _build_and_install_windows(build_dir, options.verbose, progress, task)
+            _build_and_install_windows(
+                repo_dir, build_dir, options.verbose, progress, task
+            )
         else:
             _build_and_install_unix(
                 runner,
+                repo_dir,
                 options.verbose,
                 progress,
                 task,
@@ -529,6 +616,8 @@ def build_python(
             raise typer.Exit(1)
 
         progress.update(task, description=f"[green]Built {commit[:7]}[/green]")
+
+    _record_build_repository(build_dir, options.repo)
 
     return build_dir
 
@@ -559,6 +648,10 @@ def install(
         int | None,
         typer.Option("--jobs", min=1, help="Number of parallel Unix build jobs"),
     ] = None,
+    repo: Annotated[
+        str | None,
+        typer.Option("--repo", help="CPython fork URL or GitHub owner/repository"),
+    ] = None,
     verbose: Annotated[
         bool, typer.Option("--verbose", help="Show build output")
     ] = False,
@@ -566,17 +659,17 @@ def install(
     """Build and install a specific CPython version."""
     output = get_output()
     try:
-        commit = _resolve_ref(ref)
-        output.info(f"Resolved '{ref}' to commit {commit[:7]}")
-
         options = _build_options(
             jit=jit,
             pgo=pgo,
             nogil=nogil,
             ccache=ccache,
             jobs=jobs,
+            repo=repo,
             verbose=verbose,
         )
+        commit = _resolve_ref(ref, options.repo)
+        output.info(f"Resolved '{ref}' to commit {commit[:7]}")
         build_dir = build_python(commit, options)
 
         output.success(f"\nSuccessfully built CPython {commit[:7]}")
@@ -586,6 +679,8 @@ def install(
         actual_flags = BuildInfo.from_directory(build_dir).flags
 
         run_example = f"every-python run {ref}"
+        if options.repo is not None:
+            run_example += f" --repo {options.repo}"
         if "jit" in actual_flags:
             run_example += " --jit"
         if "pgo" in actual_flags:
@@ -627,14 +722,18 @@ def run(
             help="Number of parallel Unix jobs if an automatic build is needed",
         ),
     ] = None,
+    repo: Annotated[
+        str | None,
+        typer.Option("--repo", help="CPython fork URL or GitHub owner/repository"),
+    ] = None,
 ):
     """Run a command with a specific Python version."""
     output = get_output()
     try:
-        commit = _resolve_ref(ref)
         options = _build_options(
-            jit=jit, pgo=pgo, nogil=nogil, ccache=ccache, jobs=jobs
+            jit=jit, pgo=pgo, nogil=nogil, ccache=ccache, jobs=jobs, repo=repo
         )
+        commit = _resolve_ref(ref, options.repo)
         build_info = BuildInfo(commit=commit, flags=options.flags)
         build_dir = build_info.get_path(BUILDS_DIR)
 
@@ -708,50 +807,68 @@ def list_builds():
         reverse=True,
     )
 
-    table = Table(show_header=True, header_style="bold")
-    table.add_column("Version", style="cyan")
-    table.add_column("JIT", justify="center", width=4)
-    table.add_column("Date", style="green")
-    table.add_column("Commit", style="white", width=7)
-    table.add_column("Message", style="dim", no_wrap=False)
+    table = Table(show_header=True, header_style="bold", show_lines=True)
+    table.add_column(
+        "Build", style="cyan", max_width=28, no_wrap=True, overflow="ellipsis"
+    )
+    table.add_column("Commit", style="white", width=7, no_wrap=True)
+    table.add_column(
+        "Source", style="blue", max_width=18, no_wrap=True, overflow="ellipsis"
+    )
+    table.add_column("Message", style="dim", overflow="ellipsis", ratio=1)
 
     commits = [bv.build_info.commit for bv in build_versions]
 
-    result = runner.run_git(
-        ["log", "--format=%H|%at|%s", "--no-walk"] + commits, repo_dir=REPO_DIR
-    )
-    commit_info: dict[str, tuple[int, str]] = {}
-    for line in result.stdout.strip().split("\n"):
-        parts = line.split("|", 2)
-        if len(parts) == 3:
-            hash_val, timestamp_str, msg_val = parts
-            commit_info[hash_val] = (int(timestamp_str), msg_val)
+    commit_messages: dict[str, str] = {}
+    unresolved = set(commits)
+    for repo_dir in _managed_repo_dirs():
+        if not unresolved:
+            break
+        result = runner.run_git(
+            [
+                "log",
+                "--format=%H|%s",
+                "--no-walk",
+                "--ignore-missing",
+                *unresolved,
+            ],
+            repo_dir=repo_dir,
+        )
+        for line in result.stdout.strip().split("\n"):
+            parts = line.split("|", 1)
+            if len(parts) == 2:
+                hash_val, msg_val = parts
+                commit_messages[hash_val] = msg_val
+                unresolved.discard(hash_val)
 
     for bv in build_versions:
-        if bv.build_info.commit in commit_info:
-            ts, msg = commit_info[bv.build_info.commit]
-            timestamp = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
-        else:
-            timestamp = "unknown"
-            msg = ""
+        repositories = _build_repositories(bv.build_path)
+        if not repositories:
+            repositories = [CPYTHON_REPO]
+        repository = ", ".join(_repository_label(repo) for repo in repositories)
+        commit = _commit_link(bv.build_info.commit, repositories[0])
+        msg = commit_messages.get(bv.build_info.commit, "")
 
+        flags = [flag for flag in BUILD_FLAGS if flag in bv.build_info.flags]
+        flag_suffix = f"({', '.join(flags)})" if flags else ""
         if bv.version_string != "unknown":
-            jit_text = jit_indicator() if "jit" in bv.build_info.flags else ""
-            table.add_row(
-                bv.version_string.replace("Python ", ""),
-                jit_text,
-                timestamp,
-                bv.build_info.commit[:7],
+            version = bv.version_string.replace("Python ", "")
+            if flag_suffix:
+                version += f"\n{flag_suffix}"
+            row = [
+                version,
+                commit,
+                repository,
                 msg,
-            )
+            ]
         else:
-            table.add_row(
-                "[red]incomplete[/red]",
+            row = [
+                "[red]incomplete[/red]" + (f"\n{flag_suffix}" if flag_suffix else ""),
+                commit,
+                repository,
                 "",
-                timestamp,
-                bv.build_info.commit[:7],
-                "",
-            )
+            ]
+        table.add_row(*row)
 
     console.print(table)
 
@@ -760,6 +877,10 @@ def list_builds():
 def clean(
     ref: Annotated[str | None, typer.Argument(help="Git ref to remove")] = None,
     all: Annotated[bool, typer.Option("--all", help="Remove all builds")] = False,
+    repo: Annotated[
+        str | None,
+        typer.Option("--repo", help="CPython fork URL or GitHub owner/repository"),
+    ] = None,
 ):
     """Remove built Python versions to free up space."""
     output = get_output()
@@ -771,7 +892,7 @@ def clean(
             output.warning("No builds to remove")
     elif ref:
         try:
-            commit = _resolve_ref(ref)
+            commit = _resolve_ref(ref, repo)
 
             removed: list[str] = []
             for flags in _all_flag_combos():
@@ -824,6 +945,10 @@ def bisect(
         int | None,
         typer.Option("--jobs", min=1, help="Number of parallel Unix build jobs"),
     ] = None,
+    repo: Annotated[
+        str | None,
+        typer.Option("--repo", help="CPython fork URL or GitHub owner/repository"),
+    ] = None,
 ):
     """
     Use git bisect to find the commit that introduced a bug.
@@ -834,36 +959,39 @@ def bisect(
     Example:
         every-python bisect --good v3.13.0 --bad main --run "python test.py"
     """
-    _ensure_repo()
     runner = get_runner()
     output = get_output()
+    options = _build_options(
+        jit=jit, pgo=pgo, nogil=nogil, ccache=ccache, jobs=jobs, repo=repo
+    )
+    repo_dir = _ensure_repo(options.repo)
 
     try:
         # Resolve refs to commits
         output.info(f"\nResolving good commit: {good}")
-        good_commit = _resolve_ref(good)
+        good_commit = _resolve_ref(good, options.repo)
         output.info(f"  → {good_commit[:7]}")
 
         output.info(f"Resolving bad commit: {bad}")
-        bad_commit = _resolve_ref(bad)
+        bad_commit = _resolve_ref(bad, options.repo)
         output.info(f"  → {bad_commit[:7]}")
 
         # Start bisect
         output.info("\n[bold]Starting git bisect...[/bold]")
 
         # Clean up any previous bisect state
-        runner.run_git(["bisect", "reset"], REPO_DIR)
+        runner.run_git(["bisect", "reset"], repo_dir)
 
         # Reset any local changes in the repo
-        runner.run_git(["reset", "--hard"], REPO_DIR)
-        runner.run_git(["clean", "-fdx"], REPO_DIR)
+        runner.run_git(["reset", "--hard"], repo_dir)
+        runner.run_git(["clean", "-fdx"], repo_dir)
 
-        runner.run_git(["bisect", "start"], REPO_DIR, check=True)
-        runner.run_git(["bisect", "bad", bad_commit], REPO_DIR, check=True)
+        runner.run_git(["bisect", "start"], repo_dir, check=True)
+        runner.run_git(["bisect", "bad", bad_commit], repo_dir, check=True)
 
         # Capture initial bisect output to show steps remaining
         initial_result = runner.run_git(
-            ["bisect", "good", good_commit], REPO_DIR, check=True
+            ["bisect", "good", good_commit], repo_dir, check=True
         )
 
         # Extract and display steps remaining from git bisect output
@@ -884,7 +1012,7 @@ def bisect(
 
         def is_bisect_done() -> bool:
             """Check if bisect is complete by checking if BISECT_LOG exists."""
-            bisect_log = REPO_DIR / ".git" / "BISECT_LOG"
+            bisect_log = repo_dir / ".git" / "BISECT_LOG"
             # Bisect is done when BISECT_LOG doesn't exist
             return not bisect_log.exists()
 
@@ -894,7 +1022,7 @@ def bisect(
         while not is_bisect_done() and iteration_count < max_iterations:
             iteration_count += 1
             # Get current commit being tested
-            result = runner.run_git(["rev-parse", "HEAD"], REPO_DIR, check=True)
+            result = runner.run_git(["rev-parse", "HEAD"], repo_dir, check=True)
             current_commit = result.stdout.strip()
 
             output.status(
@@ -903,20 +1031,13 @@ def bisect(
 
             # Build this commit (build_python handles incomplete builds internally)
             try:
-                options = _build_options(
-                    jit=jit,
-                    pgo=pgo,
-                    nogil=nogil,
-                    ccache=ccache,
-                    jobs=jobs,
-                )
                 build_dir = build_python(current_commit, options)
                 build_info = BuildInfo.from_directory(build_dir)
                 python_bin = python_binary_location(BUILDS_DIR, build_info)
             except typer.Exit:
                 # Build failed - skip this commit in bisect
                 output.error("Build failed, skipping commit (exit 125)")
-                runner.run_git(["bisect", "skip"], REPO_DIR, check=True)
+                runner.run_git(["bisect", "skip"], repo_dir, check=True)
                 continue
 
             # Run the test command
@@ -936,15 +1057,15 @@ def bisect(
 
             if test_result.returncode == 0:
                 output.success("Test passed (exit 0) - marking as good")
-                bisect_result = runner.run_git(["bisect", "good"], REPO_DIR, check=True)
+                bisect_result = runner.run_git(["bisect", "good"], repo_dir, check=True)
             elif test_result.returncode == 125:
                 output.warning("Test requested skip (exit 125) - skipping commit")
-                bisect_result = runner.run_git(["bisect", "skip"], REPO_DIR, check=True)
+                bisect_result = runner.run_git(["bisect", "skip"], repo_dir, check=True)
             elif 1 <= test_result.returncode < 128:
                 output.error(
                     f"✗ Test failed (exit {test_result.returncode}) - marking as bad"
                 )
-                bisect_result = runner.run_git(["bisect", "bad"], REPO_DIR, check=True)
+                bisect_result = runner.run_git(["bisect", "bad"], repo_dir, check=True)
             else:
                 output.error(f"Test exited with code {test_result.returncode} >= 128")
                 raise typer.Exit(1)
@@ -969,7 +1090,7 @@ def bisect(
                     )
 
         # Show final result
-        result = runner.run_git(["bisect", "log"], REPO_DIR)
+        result = runner.run_git(["bisect", "log"], repo_dir)
 
         output.success("\n[bold green]Bisect complete![/bold green]")
         # Extract and show the first bad commit from the log
@@ -988,7 +1109,7 @@ def bisect(
                         "--format=%H%n%an <%ae>%n%ad%n%s",
                         commit_hash,
                     ],
-                    REPO_DIR,
+                    repo_dir,
                 )
                 if commit_result.success:
                     output.info(commit_result.stdout)
@@ -999,4 +1120,4 @@ def bisect(
         raise typer.Exit(1)
     finally:
         # Clean up bisect state
-        runner.run_git(["bisect", "reset"], REPO_DIR)
+        runner.run_git(["bisect", "reset"], repo_dir)
