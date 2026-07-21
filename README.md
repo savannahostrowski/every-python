@@ -66,7 +66,7 @@ every-python install abc123d
 # Show build output (useful for debugging build failures)
 every-python install main --verbose
 
-# Limit parallel compilation and installation to 8 jobs
+# Limit parallel compilation to 8 jobs
 every-python install main --jobs 8
 ```
 

@@ -30,7 +30,7 @@ def test_jobs_must_be_positive() -> None:
 
 
 @patch("every_python.main.REPO_DIR", Path("/tmp/cpython"))
-def test_build_and_install_use_requested_jobs() -> None:
+def test_build_uses_requested_jobs_and_install_is_serial() -> None:
     command_runner = Mock()
     command_runner.run.return_value = Mock(success=True, stderr="")
     progress = Mock()
@@ -53,7 +53,7 @@ def test_build_and_install_use_requested_jobs() -> None:
             env=build_env,
         ),
         call(
-            ["make", "-j6", "install"],
+            ["make", "install"],
             cwd=Path("/tmp/cpython"),
             env=build_env,
         ),

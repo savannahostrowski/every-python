@@ -408,9 +408,10 @@ def _build_and_install_unix(
 
     # Install
     progress.update(task, description="Installing...")
-    install_result = runner.run(
-        ["make", f"-j{ncpu}", "install"], cwd=REPO_DIR, env=build_env
-    )
+    # CPython's install target is not parallel-safe: multiple rules can race to
+    # create the same destination directory. Keep compilation parallel and
+    # installation serial.
+    install_result = runner.run(["make", "install"], cwd=REPO_DIR, env=build_env)
 
     if not install_result.success:
         progress.stop()
