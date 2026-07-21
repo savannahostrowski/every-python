@@ -52,20 +52,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - Locate older `python3.0` binaries correctly.
 
-## Earlier releases
-
-- [0.4.1] - 2025-11-17
-- [0.4.0] - 2025-11-10
-- [0.3.0] - 2025-11-10
-- [0.2.0] - 2025-11-10
-- [0.0.1] - 2025-11-09
-
 [Unreleased]: https://github.com/savannahostrowski/every-python/compare/v0.6.0...HEAD
 [0.6.0]: https://github.com/savannahostrowski/every-python/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/savannahostrowski/every-python/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/savannahostrowski/every-python/compare/v0.4.1...v0.5.0
-[0.4.1]: https://github.com/savannahostrowski/every-python/compare/v0.4.0...v0.4.1
-[0.4.0]: https://github.com/savannahostrowski/every-python/compare/v0.3.0...v0.4.0
-[0.3.0]: https://github.com/savannahostrowski/every-python/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/savannahostrowski/every-python/compare/v0.0.1...v0.2.0
-[0.0.1]: https://github.com/savannahostrowski/every-python/releases/tag/v0.0.1
