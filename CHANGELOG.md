@@ -7,6 +7,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+* 📝 Add automated changelog updates. PR [#56](https://github.com/savannahostrowski/every-python/pull/56) by [@savannahostrowski](https://github.com/savannahostrowski).
 ### Added
 
 - Add optional compiler caching with `--ccache` on macOS and Linux.
