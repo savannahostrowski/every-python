@@ -7,6 +7,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+* Bump actions/checkout from 7.0.0 to 7.0.1. PR [#60](https://github.com/savannahostrowski/every-python/pull/60) by [@dependabot[bot]](https://github.com/apps/dependabot).
 * Bump actions/setup-python from 6.3.0 to 7.0.0. PR [#61](https://github.com/savannahostrowski/every-python/pull/61) by [@dependabot[bot]](https://github.com/apps/dependabot).
 * Bump astral-sh/setup-uv from 8.3.2 to 9.0.0. PR [#62](https://github.com/savannahostrowski/every-python/pull/62) by [@dependabot[bot]](https://github.com/apps/dependabot).
 * Bump ruff from 0.15.21 to 0.15.22. PR [#64](https://github.com/savannahostrowski/every-python/pull/64) by [@dependabot[bot]](https://github.com/apps/dependabot).
