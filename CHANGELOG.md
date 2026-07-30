@@ -7,6 +7,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+* Group Dependabot updates into monthly PRs. PR [#68](https://github.com/savannahostrowski/every-python/pull/68) by [@savannahostrowski](https://github.com/savannahostrowski).
 * Bump ty from 0.0.60 to 0.0.63. PR [#63](https://github.com/savannahostrowski/every-python/pull/63) by [@dependabot[bot]](https://github.com/apps/dependabot).
 * Bump actions/checkout from 7.0.0 to 7.0.1. PR [#60](https://github.com/savannahostrowski/every-python/pull/60) by [@dependabot[bot]](https://github.com/apps/dependabot).
 * Bump actions/setup-python from 6.3.0 to 7.0.0. PR [#61](https://github.com/savannahostrowski/every-python/pull/61) by [@dependabot[bot]](https://github.com/apps/dependabot).
