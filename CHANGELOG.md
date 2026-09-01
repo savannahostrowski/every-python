@@ -7,6 +7,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+* Bump the github-actions group with 2 updates. PR [#73](https://github.com/savannahostrowski/every-python/pull/73) by [@dependabot[bot]](https://github.com/apps/dependabot).
 * Bump tiangolo/latest-changes from 0.6.1 to 0.7.1 in the github-actions group. PR [#69](https://github.com/savannahostrowski/every-python/pull/69) by [@dependabot[bot]](https://github.com/apps/dependabot).
 * Bump the python-dependencies group with 2 updates. PR [#70](https://github.com/savannahostrowski/every-python/pull/70) by [@dependabot[bot]](https://github.com/apps/dependabot).
 * Group Dependabot updates into monthly PRs. PR [#68](https://github.com/savannahostrowski/every-python/pull/68) by [@savannahostrowski](https://github.com/savannahostrowski).
