@@ -9,7 +9,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 * Add `--configure-cache PATH` and `EVERY_PYTHON_CONFIGURE_CACHE_FILE` to reuse
   Unix configure checks across `install`, `run`, and `bisect` builds. The CLI
-  option overrides the environment variable; `/dev/null` disables caching.
+  option overrides the environment variable; `--no-configure-cache` disables
+  caching regardless of either setting.
 
 * Bump the python-dependencies group with 3 updates. PR [#74](https://github.com/savannahostrowski/every-python/pull/74) by [@dependabot[bot]](https://github.com/apps/dependabot).
 * Bump the github-actions group with 2 updates. PR [#73](https://github.com/savannahostrowski/every-python/pull/73) by [@dependabot[bot]](https://github.com/apps/dependabot).

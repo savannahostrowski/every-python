@@ -62,7 +62,20 @@ def invoke_build(command, arguments, env=None):
 
 
 @pytest.mark.parametrize("command", ["install", "run", "bisect"])
-@pytest.mark.parametrize("source", ["default", "cli", "env", "override", "disable"])
+@pytest.mark.parametrize(
+    "source",
+    [
+        "default",
+        "cli",
+        "env",
+        "override",
+        "devnull",
+        "disable",
+        "disable_only",
+        "disable_before_cli",
+        "disable_after_cli",
+    ],
+)
 def test_commands_propagate_configure_cache(cli_build, tmp_path, command, source):
     build, _, _ = cli_build
     cache = tmp_path / "config cache"
@@ -70,18 +83,55 @@ def test_commands_propagate_configure_cache(cli_build, tmp_path, command, source
     env = {}
     arguments = []
     expected = None
-    if source in {"env", "override", "disable"}:
+    if source in {
+        "env",
+        "override",
+        "devnull",
+        "disable",
+        "disable_before_cli",
+        "disable_after_cli",
+    }:
         env["EVERY_PYTHON_CONFIGURE_CACHE_FILE"] = str(env_cache)
         expected = env_cache
-    if source in {"cli", "override", "disable"}:
-        expected = Path("/dev/null") if source == "disable" else cache
+    if source in {
+        "cli",
+        "override",
+        "devnull",
+        "disable_before_cli",
+        "disable_after_cli",
+    }:
+        expected = Path("/dev/null") if source == "devnull" else cache
         arguments = ["--configure-cache", str(expected)]
+    if source.startswith("disable"):
+        expected = None
+        # An invalid environment path must not prevent disabling the cache.
+        env_cache.mkdir()
+        if source == "disable_before_cli":
+            arguments.insert(0, "--no-configure-cache")
+        else:
+            arguments.append("--no-configure-cache")
 
     result = invoke_build(command, arguments, env)
 
     assert result.exit_code == 0, result.output
     assert len(build.call_args_list) == 1
     assert build.call_args.args[1] == BuildOptions(configure_cache=expected)
+
+
+def test_no_configure_cache_overrides_environment_on_windows(
+    cli_build, mocker, tmp_path
+):
+    build, _, _ = cli_build
+    mocker.patch("every_python.main.platform.system", return_value="Windows")
+
+    result = invoke_build(
+        "bisect",
+        ["--no-configure-cache"],
+        env={"EVERY_PYTHON_CONFIGURE_CACHE_FILE": str(tmp_path)},
+    )
+
+    assert result.exit_code == 0, result.output
+    assert build.call_args.args[1].configure_cache is None
 
 
 @pytest.mark.parametrize("system", ["Linux", "Darwin"])
@@ -232,7 +282,7 @@ def test_configure_failure_reports_cache_without_retry(
     assert exc.value.exit_code == 1
     command_runner.run.assert_called_once()
     output = capsys.readouterr().out
-    assert ("--configure-cache /dev/null" in output) == use_cache
+    assert ("--no-configure-cache" in output) == use_cache
     if not verbose:
         assert "incompatible settings" in output
 

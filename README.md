@@ -173,8 +173,12 @@ every-python bisect --good v3.13.0 --bad v3.13.1 --run "python test.py"
 every-python install main --configure-cache ~/python-configure-caches/main.cache
 
 # Disable configure caching for one command, even when the variable is set
-every-python install main --configure-cache /dev/null
+every-python install main --no-configure-cache
 ```
+
+`--no-configure-cache` works with `install`, `run`, and `bisect`. It overrides
+both `EVERY_PYTHON_CONFIGURE_CACHE_FILE` and `--configure-cache`, regardless of
+the order of the options.
 
 Every-python passes the absolute path to `./configure --cache-file=PATH`.
 Relative paths are resolved from the directory where you invoke every-python,
@@ -190,8 +194,9 @@ compilers, build flags, or environments, and recreate the cache when dependencie
 change. Every-python does not validate or invalidate cached configure results;
 a stale cache can cause failures or incorrect configuration. If configure fails
 while using a cache, the command stops (including during a bisect) so you can
-choose another cache or retry with `/dev/null`. It does not automatically retry
-without the cache. Other build failures retain the usual bisect skip behavior.
+choose another cache or retry with `--no-configure-cache`. It does not
+automatically retry without the cache. Other build failures retain the usual
+bisect skip behavior.
 
 The configure cache only affects new builds. Existing completed builds are
 reused as usual, and the cache path does not create a separate build variant.

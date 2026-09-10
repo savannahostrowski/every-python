@@ -62,6 +62,7 @@ def _build_options(
     repo: str | None = None,
     reference_repo: Path | None = None,
     configure_cache: Path | None = None,
+    no_configure_cache: bool = False,
     verbose: bool = False,
 ) -> BuildOptions:
     """Create build options from CLI values."""
@@ -72,7 +73,7 @@ def _build_options(
         verbose=verbose,
         repo=repo,
         reference_repo=reference_repo,
-        configure_cache=configure_cache,
+        configure_cache=None if no_configure_cache else configure_cache,
     )
 
 
@@ -486,7 +487,7 @@ def _run_configure(
         if configure_cache is not None:
             output.info(
                 f"The configure cache at {configure_cache} may be stale or incompatible. "
-                "Choose another cache or retry with --configure-cache /dev/null."
+                "Choose another cache or retry with --no-configure-cache."
             )
             raise ConfigureCacheError(1)
         raise typer.Exit(1)
@@ -725,9 +726,16 @@ def install(
         typer.Option(
             "--configure-cache",
             envvar="EVERY_PYTHON_CONFIGURE_CACHE_FILE",
-            help="Unix configure cache file to reuse (use /dev/null to disable)",
+            help="Unix configure cache file to reuse",
         ),
     ] = None,
+    no_configure_cache: Annotated[
+        bool,
+        typer.Option(
+            "--no-configure-cache",
+            help="Disable configure caching, overriding --configure-cache and the environment",
+        ),
+    ] = False,
     reference_repo: Annotated[
         Path | None,
         typer.Option(
@@ -752,6 +760,7 @@ def install(
             repo=repo,
             reference_repo=reference_repo,
             configure_cache=configure_cache,
+            no_configure_cache=no_configure_cache,
             verbose=verbose,
         )
         commit = _resolve_ref(ref, options.repo, options.reference_repo)
@@ -817,9 +826,16 @@ def run(
         typer.Option(
             "--configure-cache",
             envvar="EVERY_PYTHON_CONFIGURE_CACHE_FILE",
-            help="Unix configure cache file to reuse (use /dev/null to disable)",
+            help="Unix configure cache file to reuse",
         ),
     ] = None,
+    no_configure_cache: Annotated[
+        bool,
+        typer.Option(
+            "--no-configure-cache",
+            help="Disable configure caching, overriding --configure-cache and the environment",
+        ),
+    ] = False,
     reference_repo: Annotated[
         Path | None,
         typer.Option(
@@ -841,6 +857,7 @@ def run(
             repo=repo,
             reference_repo=reference_repo,
             configure_cache=configure_cache,
+            no_configure_cache=no_configure_cache,
         )
         commit = _resolve_ref(ref, options.repo, options.reference_repo)
         build_info = BuildInfo(commit=commit, flags=options.flags)
@@ -1071,9 +1088,16 @@ def bisect(
         typer.Option(
             "--configure-cache",
             envvar="EVERY_PYTHON_CONFIGURE_CACHE_FILE",
-            help="Unix configure cache file to reuse (use /dev/null to disable)",
+            help="Unix configure cache file to reuse",
         ),
     ] = None,
+    no_configure_cache: Annotated[
+        bool,
+        typer.Option(
+            "--no-configure-cache",
+            help="Disable configure caching, overriding --configure-cache and the environment",
+        ),
+    ] = False,
     reference_repo: Annotated[
         Path | None,
         typer.Option(
@@ -1103,6 +1127,7 @@ def bisect(
         repo=repo,
         reference_repo=reference_repo,
         configure_cache=configure_cache,
+        no_configure_cache=no_configure_cache,
     )
     repo_dir = _ensure_repo(options.repo, options.reference_repo)
     # Validate before the initial bisect cleanup can remove the cache.
