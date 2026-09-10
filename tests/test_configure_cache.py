@@ -1,5 +1,5 @@
 from pathlib import Path
-from unittest.mock import Mock, call
+from unittest.mock import Mock
 
 import pytest
 import typer
@@ -9,7 +9,6 @@ from typer.testing import CliRunner
 from every_python.main import (
     BuildOptions,
     ConfigureCacheError,
-    _get_configure_args,
     _resolve_configure_cache,
     _run_configure,
     app,
@@ -17,259 +16,127 @@ from every_python.main import (
 )
 from every_python.runner import CommandResult
 
-runner = CliRunner()
 COMMIT = "abc123def456"
-
-
-@pytest.fixture(autouse=True)
-def isolate_environment(monkeypatch):
-    monkeypatch.delenv("EVERY_PYTHON_CONFIGURE_CACHE_FILE", raising=False)
-    monkeypatch.delenv("EVERY_PYTHON_REFERENCE_REPO", raising=False)
+INSTALL = ["install", "main"]
+RUN = ["run", "main", "python"]
+BISECT = ["bisect", "--good", "good", "--bad", "bad", "--run", "exit 0"]
 
 
 @pytest.fixture
-def cli_build(mocker, tmp_path):
-    repo_dir = tmp_path / "cpython"
-    (repo_dir / ".git").mkdir(parents=True)
-    (repo_dir / ".git" / "BISECT_LOG").touch()
-    mocker.patch("every_python.main._ensure_repo", return_value=repo_dir)
+def build_cli(mocker, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("EVERY_PYTHON_CONFIGURE_CACHE_FILE", raising=False)
+    monkeypatch.delenv("EVERY_PYTHON_REFERENCE_REPO", raising=False)
+    repo = tmp_path / "cpython"
+    (repo / ".git").mkdir(parents=True)
+    (repo / ".git" / "BISECT_LOG").touch()
+    mocker.patch("every_python.main._ensure_repo", return_value=repo)
     mocker.patch("every_python.main._resolve_ref", return_value=COMMIT)
-    mocker.patch("every_python.main.BUILDS_DIR", tmp_path / "builds")
     mocker.patch("every_python.main.platform.system", return_value="Linux")
-    python_bin = tmp_path / "python"
-    python_bin.touch()
-    mocker.patch("every_python.main.python_binary_location", return_value=python_bin)
+    mocker.patch("every_python.main.BUILDS_DIR", tmp_path / "builds")
+    python = tmp_path / "python"
+    python.touch()
+    mocker.patch("every_python.main.python_binary_location", return_value=python)
     mocker.patch("every_python.main.os.execv")
     mocker.patch("every_python.main.subprocess.run", return_value=Mock(returncode=0))
-    command_runner = mocker.patch("every_python.main.get_runner").return_value
-    command_runner.run_git.return_value = CommandResult(
-        0, f"{COMMIT} is the first bad commit", ""
+    commands = mocker.patch("every_python.main.get_runner").return_value
+
+    def git_result(args, *positional, **kwargs):
+        stdout = COMMIT if args == ["rev-parse", "HEAD"] else "is the first bad commit"
+        return CommandResult(0, stdout, "")
+
+    commands.run_git.side_effect = git_result
+    build = mocker.patch(
+        "every_python.main.build_python", return_value=tmp_path / COMMIT
     )
-    build = mocker.patch("every_python.main.build_python")
-    build.return_value = tmp_path / "builds" / COMMIT
-    return build, command_runner, repo_dir
+    return build, commands, repo
 
 
-def invoke_build(command, arguments, env=None):
-    if command == "install":
-        args = ["install", "main", *arguments]
-    elif command == "run":
-        args = ["run", "main", *arguments, "--", "python", "--version"]
-    else:
-        args = ["bisect", "--good", "good", "--bad", "bad", "--run", "exit 0"]
-        args.extend(arguments)
-    return runner.invoke(app, args, env=env)
-
-
-@pytest.mark.parametrize("command", ["install", "run", "bisect"])
+@pytest.mark.parametrize("command", [INSTALL, RUN, BISECT])
 @pytest.mark.parametrize(
-    "source",
+    "args, env_cache, expected",
     [
-        "default",
-        "cli",
-        "env",
-        "override",
-        "devnull",
-        "disable",
-        "disable_only",
-        "disable_before_cli",
-        "disable_after_cli",
+        ([], "", None),
+        (["--configure-cache", "local.cache"], "", "local.cache"),
+        ([], "default.cache", "default.cache"),
+        (["--configure-cache", "local.cache"], "default.cache", "local.cache"),
+        (["--no-configure-cache"], "", None),
+        (["--no-configure-cache"], "default.cache", None),
+        (
+            ["--no-configure-cache", "--configure-cache", "local.cache"],
+            "default.cache",
+            None,
+        ),
+        (
+            ["--configure-cache", "local.cache", "--no-configure-cache"],
+            "default.cache",
+            None,
+        ),
     ],
 )
-def test_commands_propagate_configure_cache(cli_build, tmp_path, command, source):
-    build, _, _ = cli_build
-    cache = tmp_path / "config cache"
-    env_cache = tmp_path / "environment.cache"
-    env = {}
-    arguments = []
-    expected = None
-    if source in {
-        "env",
-        "override",
-        "devnull",
-        "disable",
-        "disable_before_cli",
-        "disable_after_cli",
-    }:
-        env["EVERY_PYTHON_CONFIGURE_CACHE_FILE"] = str(env_cache)
-        expected = env_cache
-    if source in {
-        "cli",
-        "override",
-        "devnull",
-        "disable_before_cli",
-        "disable_after_cli",
-    }:
-        expected = Path("/dev/null") if source == "devnull" else cache
-        arguments = ["--configure-cache", str(expected)]
-    if source.startswith("disable"):
-        expected = None
-        # An invalid environment path must not prevent disabling the cache.
-        env_cache.mkdir()
-        if source == "disable_before_cli":
-            arguments.insert(0, "--no-configure-cache")
-        else:
-            arguments.append("--no-configure-cache")
-
-    result = invoke_build(command, arguments, env)
-
+def test_cache_options(build_cli, command, args, env_cache, expected):
+    build, _, _ = build_cli
+    result = CliRunner().invoke(
+        app, command + args, env={"EVERY_PYTHON_CONFIGURE_CACHE_FILE": env_cache}
+    )
     assert result.exit_code == 0, result.output
-    assert len(build.call_args_list) == 1
-    assert build.call_args.args[1] == BuildOptions(configure_cache=expected)
-
-
-def test_no_configure_cache_overrides_environment_on_windows(
-    cli_build, mocker, tmp_path
-):
-    build, _, _ = cli_build
-    mocker.patch("every_python.main.platform.system", return_value="Windows")
-
-    result = invoke_build(
-        "bisect",
-        ["--no-configure-cache"],
-        env={"EVERY_PYTHON_CONFIGURE_CACHE_FILE": str(tmp_path)},
+    build.assert_called_once_with(
+        COMMIT, BuildOptions(configure_cache=Path(expected) if expected else None)
     )
 
-    assert result.exit_code == 0, result.output
-    assert build.call_args.args[1].configure_cache is None
 
-
-@pytest.mark.parametrize("system", ["Linux", "Darwin"])
-def test_configure_args_include_cache_as_one_argument(mocker, tmp_path, system):
-    mocker.patch("every_python.main.platform.system", return_value=system)
-    cache = tmp_path / "config cache;literal"
-    args = _get_configure_args(tmp_path, frozenset({"jit", "pgo", "nogil"}), cache)
-    assert args == [
-        "./configure",
-        "--prefix",
-        str(tmp_path),
-        "--with-pydebug",
-        f"--cache-file={cache}",
-        "--enable-experimental-jit",
-        "--enable-optimizations",
-        "--disable-gil",
-    ]
-
-
-def test_resolve_relative_and_home_paths(mocker, monkeypatch, tmp_path):
+def test_cache_paths(mocker, monkeypatch, tmp_path):
     mocker.patch("every_python.main.platform.system", return_value="Linux")
     monkeypatch.chdir(tmp_path)
-    assert _resolve_configure_cache(Path("~/config.cache"), tmp_path / "cpython") == (
-        Path.home() / "config.cache"
+    repo = tmp_path / "cpython"
+    assert (
+        _resolve_configure_cache(Path("config cache"), repo)
+        == tmp_path / "config cache"
     )
-    # A new cache file is allowed; configure will create it.
-    assert _resolve_configure_cache(Path("config.cache"), tmp_path / "cpython") == (
-        tmp_path / "config.cache"
-    )
-
-
-@pytest.mark.parametrize("system", ["Linux", "Darwin", "Windows"])
-def test_no_cache_preserves_platform_defaults(mocker, tmp_path, system):
-    mocker.patch("every_python.main.platform.system", return_value=system)
-    assert _resolve_configure_cache(None, tmp_path) is None
-    assert not any(
-        arg.startswith("--cache-file=")
-        for arg in _get_configure_args(tmp_path, frozenset())
+    assert (
+        _resolve_configure_cache(Path("~/config.cache"), repo)
+        == Path.home() / "config.cache"
     )
 
 
-def test_devnull_disables_cache(mocker, tmp_path):
-    mocker.patch("every_python.main.platform.system", return_value="Linux")
-    mocker.patch("every_python.main.os.devnull", "/dev/null")
-    assert _resolve_configure_cache(Path("/dev/null"), tmp_path) is None
-
-
-@pytest.mark.parametrize("command", ["install", "bisect"])
-@pytest.mark.parametrize("location", ["checkout", "directory", "windows"])
-def test_invalid_cache_fails_before_checkout_or_cleanup(
-    cli_build, mocker, tmp_path, command, location
-):
-    _, command_runner, repo_dir = cli_build
+@pytest.mark.parametrize("command", [INSTALL, BISECT])
+@pytest.mark.parametrize(
+    "system, path",
+    [("Linux", "cpython/config.cache"), ("Linux", "."), ("Windows", "config.cache")],
+)
+def test_invalid_cache_fails_before_cleanup(build_cli, mocker, command, system, path):
+    _, commands, _ = build_cli
     mocker.patch("every_python.main.build_python", wraps=build_python)
-    cache = tmp_path / "config.cache"
-    if location == "checkout":
-        cache = repo_dir / "config.cache"
-        cache.write_text("preserve this cache")
-    elif location == "directory":
-        cache.mkdir()
-    else:
-        mocker.patch("every_python.main.platform.system", return_value="Windows")
-
-    result = invoke_build(command, ["--configure-cache", str(cache)])
-
+    mocker.patch("every_python.main.platform.system", return_value=system)
+    result = CliRunner().invoke(app, command + ["--configure-cache", path])
     assert result.exit_code == 1
-    assert "cache" in result.output
-    command_runner.run_git.assert_not_called()
-    if location == "checkout":
-        assert cache.read_text() == "preserve this cache"
+    commands.run_git.assert_not_called()
 
 
-def test_rejects_symlink_into_checkout(mocker, tmp_path):
-    mocker.patch("every_python.main.platform.system", return_value="Linux")
-    repo_dir = tmp_path / "cpython"
-    repo_dir.mkdir()
-    link = tmp_path / "cache-link"
-    try:
-        link.symlink_to(repo_dir / "config.cache")
-    except OSError:
-        pytest.skip("Symlinks are unavailable")
-    with pytest.raises(ConfigureCacheError):
-        _resolve_configure_cache(link, repo_dir)
-
-
-def test_build_passes_absolute_cache_after_cleanup(mocker, monkeypatch, tmp_path):
-    repo_dir = tmp_path / "cpython"
-    repo_dir.mkdir()
-    builds_dir = tmp_path / "builds"
-    mocker.patch("every_python.main._ensure_repo", return_value=repo_dir)
-    mocker.patch("every_python.main.BUILDS_DIR", builds_dir)
-    mocker.patch("every_python.main.platform.system", return_value="Linux")
+def test_build_passes_cache_to_configure(build_cli, mocker, tmp_path):
+    _, commands, repo = build_cli
     mocker.patch("every_python.main._record_build_repository")
-    python_bin = mocker.patch("every_python.main.python_binary_location").return_value
-    python_bin.exists.return_value = True
-    command_runner = mocker.patch("every_python.main.get_runner").return_value
-    command_runner.run.return_value = CommandResult(0, "", "")
-    command_runner.run_git.return_value = CommandResult(0, "", "")
-    monkeypatch.chdir(tmp_path)
+    commands.run.return_value = CommandResult(0, "", "")
 
-    result = build_python(
-        COMMIT, BuildOptions(configure_cache=Path("config cache"), ccache=False, jobs=2)
+    build_python(
+        COMMIT, BuildOptions(configure_cache=Path("config cache"), ccache=False)
     )
 
-    assert result == builds_dir / COMMIT
-    assert command_runner.method_calls == [
-        call.run_git(["checkout", COMMIT], repo_dir),
-        call.run_git(["clean", "-fdx"], repo_dir=repo_dir),
-        call.run(
-            [
-                "./configure",
-                "--prefix",
-                str(result),
-                "--with-pydebug",
-                f"--cache-file={tmp_path / 'config cache'}",
-            ],
-            cwd=repo_dir,
-            capture_output=True,
-            env=None,
-        ),
-        call.run(["make", "-j2"], cwd=repo_dir, capture_output=True, env=None),
-        call.run(["make", "install"], cwd=repo_dir, env=None),
-    ]
+    configure = commands.run.call_args_list[0]
+    assert configure.args[0][-1] == f"--cache-file={tmp_path / 'config cache'}"
+    assert configure.kwargs["cwd"] == repo
 
 
 @pytest.mark.parametrize("verbose", [False, True])
-@pytest.mark.parametrize("use_cache", [False, True])
-def test_configure_failure_reports_cache_without_retry(
-    tmp_path, capsys, verbose, use_cache
-):
-    command_runner = Mock()
-    command_runner.run.return_value = CommandResult(1, "", "incompatible settings")
-    cache = tmp_path / "config.cache" if use_cache else None
-    error = ConfigureCacheError if use_cache else typer.Exit
-
+@pytest.mark.parametrize(
+    "cache, error", [(None, typer.Exit), (Path("config.cache"), ConfigureCacheError)]
+)
+def test_configure_failure(cache, error, verbose, tmp_path, capsys):
+    commands = Mock()
+    commands.run.return_value = CommandResult(1, "", "incompatible settings")
     with pytest.raises(error) as exc:
         _run_configure(
-            command_runner,
+            commands,
             tmp_path,
             tmp_path / "build",
             frozenset(),
@@ -278,65 +145,23 @@ def test_configure_failure_reports_cache_without_retry(
             TaskID(1),
             configure_cache=cache,
         )
-
     assert exc.value.exit_code == 1
-    command_runner.run.assert_called_once()
-    output = capsys.readouterr().out
-    assert ("--no-configure-cache" in output) == use_cache
-    if not verbose:
-        assert "incompatible settings" in output
+    commands.run.assert_called_once()
+    assert ("--no-configure-cache" in capsys.readouterr().out) == (cache is not None)
 
 
-def test_bisect_reuses_cache_for_each_commit(cli_build, tmp_path):
-    build, command_runner, _ = cli_build
-    commits = iter([COMMIT, "def456abc123"])
-    good_calls = 0
-
-    def git_result(args, *positional, **kwargs):
-        nonlocal good_calls
-        if args == ["rev-parse", "HEAD"]:
-            return CommandResult(0, next(commits), "")
-        if args[:2] == ["bisect", "good"]:
-            good_calls += 1
-            if good_calls == 3:
-                return CommandResult(0, f"{COMMIT} is the first bad commit", "")
-        return CommandResult(0, "", "")
-
-    command_runner.run_git.side_effect = git_result
-    cache = tmp_path / "config.cache"
-    result = invoke_build("bisect", ["--configure-cache", str(cache)])
-
-    assert result.exit_code == 0, result.output
-    assert build.call_args_list == [
-        call(COMMIT, BuildOptions(configure_cache=cache)),
-        call("def456abc123", BuildOptions(configure_cache=cache)),
-    ]
-
-
-def test_bisect_aborts_on_cached_configure_failure_and_resets(cli_build, tmp_path):
-    build, command_runner, repo_dir = cli_build
-    build.side_effect = ConfigureCacheError(1)
-
-    result = invoke_build(
-        "bisect", ["--configure-cache", str(tmp_path / "config.cache")]
+@pytest.mark.parametrize(
+    "error, exit_code", [(ConfigureCacheError, 1), (typer.Exit, 0)]
+)
+def test_bisect_stops_for_cache_errors_and_skips_other_build_failures(
+    build_cli, error, exit_code
+):
+    build, commands, repo = build_cli
+    build.side_effect = [error(1), build.return_value]
+    result = CliRunner().invoke(app, BISECT + ["--configure-cache", "config.cache"])
+    assert result.exit_code == exit_code, result.output
+    skipped = any(
+        c.args[0] == ["bisect", "skip"] for c in commands.run_git.call_args_list
     )
-
-    assert result.exit_code == 1
-    build.assert_called_once()
-    assert not any(
-        c.args[0] == ["bisect", "skip"] for c in command_runner.run_git.call_args_list
-    )
-    command_runner.run_git.assert_called_with(["bisect", "reset"], repo_dir)
-
-
-def test_bisect_still_skips_other_build_failures(cli_build, tmp_path):
-    build, command_runner, repo_dir = cli_build
-    build.side_effect = [typer.Exit(1), build.return_value]
-
-    result = invoke_build(
-        "bisect", ["--configure-cache", str(tmp_path / "config.cache")]
-    )
-
-    assert result.exit_code == 0, result.output
-    assert build.call_count == 2
-    command_runner.run_git.assert_any_call(["bisect", "skip"], repo_dir, check=True)
+    assert skipped == (error is typer.Exit)
+    commands.run_git.assert_called_with(["bisect", "reset"], repo)

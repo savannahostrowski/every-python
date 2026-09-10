@@ -691,6 +691,23 @@ def build_python(
     return build_dir
 
 
+ConfigureCacheOption = Annotated[
+    Path | None,
+    typer.Option(
+        "--configure-cache",
+        envvar="EVERY_PYTHON_CONFIGURE_CACHE_FILE",
+        help="Unix configure cache file to reuse",
+    ),
+]
+NoConfigureCacheOption = Annotated[
+    bool,
+    typer.Option(
+        "--no-configure-cache",
+        help="Disable configure caching, overriding the path and environment",
+    ),
+]
+
+
 @app.command()
 def install(
     ref: Annotated[
@@ -721,21 +738,8 @@ def install(
         str | None,
         typer.Option("--repo", help="CPython fork URL or GitHub owner/repository"),
     ] = None,
-    configure_cache: Annotated[
-        Path | None,
-        typer.Option(
-            "--configure-cache",
-            envvar="EVERY_PYTHON_CONFIGURE_CACHE_FILE",
-            help="Unix configure cache file to reuse",
-        ),
-    ] = None,
-    no_configure_cache: Annotated[
-        bool,
-        typer.Option(
-            "--no-configure-cache",
-            help="Disable configure caching, overriding --configure-cache and the environment",
-        ),
-    ] = False,
+    configure_cache: ConfigureCacheOption = None,
+    no_configure_cache: NoConfigureCacheOption = False,
     reference_repo: Annotated[
         Path | None,
         typer.Option(
@@ -821,21 +825,8 @@ def run(
         str | None,
         typer.Option("--repo", help="CPython fork URL or GitHub owner/repository"),
     ] = None,
-    configure_cache: Annotated[
-        Path | None,
-        typer.Option(
-            "--configure-cache",
-            envvar="EVERY_PYTHON_CONFIGURE_CACHE_FILE",
-            help="Unix configure cache file to reuse",
-        ),
-    ] = None,
-    no_configure_cache: Annotated[
-        bool,
-        typer.Option(
-            "--no-configure-cache",
-            help="Disable configure caching, overriding --configure-cache and the environment",
-        ),
-    ] = False,
+    configure_cache: ConfigureCacheOption = None,
+    no_configure_cache: NoConfigureCacheOption = False,
     reference_repo: Annotated[
         Path | None,
         typer.Option(
@@ -1083,21 +1074,8 @@ def bisect(
         str | None,
         typer.Option("--repo", help="CPython fork URL or GitHub owner/repository"),
     ] = None,
-    configure_cache: Annotated[
-        Path | None,
-        typer.Option(
-            "--configure-cache",
-            envvar="EVERY_PYTHON_CONFIGURE_CACHE_FILE",
-            help="Unix configure cache file to reuse",
-        ),
-    ] = None,
-    no_configure_cache: Annotated[
-        bool,
-        typer.Option(
-            "--no-configure-cache",
-            help="Disable configure caching, overriding --configure-cache and the environment",
-        ),
-    ] = False,
+    configure_cache: ConfigureCacheOption = None,
+    no_configure_cache: NoConfigureCacheOption = False,
     reference_repo: Annotated[
         Path | None,
         typer.Option(

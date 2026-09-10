@@ -154,52 +154,29 @@ normally unless `--ccache` is explicitly requested, which is unsupported.
 
 ### Reuse configure checks across builds
 
-On macOS and Linux, pass `--configure-cache PATH` to reuse the results of
-CPython's `./configure` checks across nearby commits. This can save time when
-building many revisions for a bisect, and can be combined with ccache:
+On macOS and Linux, `--configure-cache PATH` reuses `./configure` checks across
+nearby commits. It works with `install`, `run`, and `bisect`, alongside ccache:
 
 ```bash
-# Create a cache on the first build and reuse it on later builds
-mkdir -p ~/python-configure-caches
-every-python install v3.13.0 --configure-cache ~/python-configure-caches/3.13.cache
-every-python install v3.13.1 --configure-cache ~/python-configure-caches/3.13.cache
+every-python install main --configure-cache ~/config.cache
 
-# Use the same cache for install, automatic builds from run, and bisect
-export EVERY_PYTHON_CONFIGURE_CACHE_FILE=~/python-configure-caches/3.13.cache
-every-python run v3.13.2 -- python --version
-every-python bisect --good v3.13.0 --bad v3.13.1 --run "python test.py"
-
-# The CLI option takes precedence over the environment variable
-every-python install main --configure-cache ~/python-configure-caches/main.cache
-
-# Disable configure caching for one command, even when the variable is set
+# Set a default cache, or disable it for one command
+export EVERY_PYTHON_CONFIGURE_CACHE_FILE=~/config.cache
 every-python install main --no-configure-cache
 ```
 
-`--no-configure-cache` works with `install`, `run`, and `bisect`. It overrides
-both `EVERY_PYTHON_CONFIGURE_CACHE_FILE` and `--configure-cache`, regardless of
-the order of the options.
+The CLI path overrides the environment variable. `--no-configure-cache` overrides
+both, regardless of option order. Relative paths use your current directory and
+`~` is expanded. Configure creates or updates the file; its parent directory must
+exist. Keep it outside the managed CPython checkout, which is cleaned before
+builds. Completed builds are still reused normally.
 
-Every-python passes the absolute path to `./configure --cache-file=PATH`.
-Relative paths are resolved from the directory where you invoke every-python,
-and `~` is expanded. You can supply an existing `config.cache` from a compatible
-local CPython build, or let configure create a new file in an existing directory.
-Configure may update the file as it discovers new checks. Store it outside
-every-python's managed CPython checkout: that checkout is cleaned before every
-build, so paths inside it are rejected.
-
-Caching is opt-in and is not supported by Windows builds. **You are responsible
-for cache compatibility.** Use separate files for different Python versions,
-compilers, build flags, or environments, and recreate the cache when dependencies
-change. Every-python does not validate or invalidate cached configure results;
-a stale cache can cause failures or incorrect configuration. If configure fails
-while using a cache, the command stops (including during a bisect) so you can
-choose another cache or retry with `--no-configure-cache`. It does not
-automatically retry without the cache. Other build failures retain the usual
-bisect skip behavior.
-
-The configure cache only affects new builds. Existing completed builds are
-reused as usual, and the cache path does not create a separate build variant.
+**Cache compatibility is your responsibility.** You can reuse a cache from a
+compatible local CPython build. Use separate caches when changing Python versions,
+compilers, build flags, or dependencies. Stale results can produce failures or
+incorrect configuration. A configure failure with caching enabled stops the
+command, including a bisect; choose another cache or use `--no-configure-cache`
+to retry. Other build failures retain the usual bisect skip behavior.
 
 ### Run Python with a specific version
 
