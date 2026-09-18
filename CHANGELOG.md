@@ -7,6 +7,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+* Add `--configure-cache PATH` and `EVERY_PYTHON_CONFIGURE_CACHE_FILE` to reuse
+  Unix configure checks across `install`, `run`, and `bisect` builds. The CLI
+  option overrides the environment variable; `--no-configure-cache` disables
+  caching regardless of either setting.
+
 * Bump the python-dependencies group with 3 updates. PR [#74](https://github.com/savannahostrowski/every-python/pull/74) by [@dependabot[bot]](https://github.com/apps/dependabot).
 * Bump the github-actions group with 2 updates. PR [#73](https://github.com/savannahostrowski/every-python/pull/73) by [@dependabot[bot]](https://github.com/apps/dependabot).
 * Bump tiangolo/latest-changes from 0.6.1 to 0.7.1 in the github-actions group. PR [#69](https://github.com/savannahostrowski/every-python/pull/69) by [@dependabot[bot]](https://github.com/apps/dependabot).

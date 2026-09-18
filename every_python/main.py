@@ -49,6 +49,7 @@ class BuildOptions:
     verbose: bool = False
     repo: str | None = None
     reference_repo: Path | None = None
+    configure_cache: Path | None = None
 
 
 def _build_options(
@@ -60,6 +61,8 @@ def _build_options(
     jobs: int | None,
     repo: str | None = None,
     reference_repo: Path | None = None,
+    configure_cache: Path | None = None,
+    no_configure_cache: bool = False,
     verbose: bool = False,
 ) -> BuildOptions:
     """Create build options from CLI values."""
@@ -70,6 +73,7 @@ def _build_options(
         verbose=verbose,
         repo=repo,
         reference_repo=reference_repo,
+        configure_cache=None if no_configure_cache else configure_cache,
     )
 
 
@@ -319,7 +323,11 @@ FLAG_TO_CONFIGURE_ARG_WINDOWS: dict[str, str] = {
 }
 
 
-def _get_configure_args(build_dir: Path, flags: frozenset[str]) -> list[str]:
+def _get_configure_args(
+    build_dir: Path,
+    flags: frozenset[str],
+    configure_cache: Path | None = None,
+) -> list[str]:
     """Get platform-specific configure arguments."""
     if platform.system() == "Windows":
         plat = _windows_build_platform()
@@ -327,6 +335,8 @@ def _get_configure_args(build_dir: Path, flags: frozenset[str]) -> list[str]:
         flag_map = FLAG_TO_CONFIGURE_ARG_WINDOWS
     else:
         args = ["./configure", "--prefix", str(build_dir), "--with-pydebug"]
+        if configure_cache is not None:
+            args.append(f"--cache-file={configure_cache}")
         flag_map = FLAG_TO_CONFIGURE_ARG_UNIX
 
     # Iterate BUILD_FLAGS to keep argument order stable
@@ -334,6 +344,37 @@ def _get_configure_args(build_dir: Path, flags: frozenset[str]) -> list[str]:
         if flag in flags:
             args.append(flag_map[flag])
     return args
+
+
+class ConfigureCacheError(typer.Exit):
+    """A configure cache problem that should also stop a bisect."""
+
+
+def _resolve_configure_cache(
+    configure_cache: Path | None, repo_dir: Path
+) -> Path | None:
+    """Resolve a cache path before changing or cleaning the managed checkout."""
+    if configure_cache is None:
+        return None
+
+    output = get_output()
+    if platform.system() == "Windows":
+        output.error("--configure-cache is supported on macOS and Linux only")
+        raise ConfigureCacheError(1)
+
+    cache_path = configure_cache.expanduser().resolve()
+    if cache_path == Path(os.devnull).resolve():
+        return None
+    if cache_path.is_relative_to(repo_dir.resolve()):
+        output.error(
+            "The configure cache must be outside the managed CPython checkout, "
+            "which is cleaned before each build"
+        )
+        raise ConfigureCacheError(1)
+    if cache_path.is_dir():
+        output.error(f"Configure cache must be a file: {cache_path}")
+        raise ConfigureCacheError(1)
+    return cache_path
 
 
 def _windows_build_platform() -> str:
@@ -418,10 +459,11 @@ def _run_configure(
     progress: Progress,
     task: TaskID,
     build_env: dict[str, str] | None = None,
+    configure_cache: Path | None = None,
 ) -> None:
     """Run the configure step."""
     output = get_output()
-    configure_args = _get_configure_args(build_dir, flags)
+    configure_args = _get_configure_args(build_dir, flags, configure_cache)
 
     if verbose:
         progress.stop()
@@ -442,6 +484,12 @@ def _run_configure(
             output.error(f"Configure failed: {result.stderr}")
         else:
             output.error("Configure failed")
+        if configure_cache is not None:
+            output.info(
+                f"The configure cache at {configure_cache} may be stale or incompatible. "
+                "Choose another cache or retry with --no-configure-cache."
+            )
+            raise ConfigureCacheError(1)
         raise typer.Exit(1)
 
 
@@ -565,6 +613,7 @@ def build_python(
             )
             shutil.rmtree(build_dir)
 
+    configure_cache = _resolve_configure_cache(options.configure_cache, repo_dir)
     build_env = (
         _get_ccache_env(required=options.ccache is True)
         if options.ccache is not False
@@ -609,6 +658,7 @@ def build_python(
             progress,
             task,
             build_env,
+            configure_cache,
         )
 
         # Build and install (platform-specific)
@@ -641,6 +691,23 @@ def build_python(
     return build_dir
 
 
+ConfigureCacheOption = Annotated[
+    Path | None,
+    typer.Option(
+        "--configure-cache",
+        envvar="EVERY_PYTHON_CONFIGURE_CACHE_FILE",
+        help="Unix configure cache file to reuse",
+    ),
+]
+NoConfigureCacheOption = Annotated[
+    bool,
+    typer.Option(
+        "--no-configure-cache",
+        help="Disable configure caching, overriding the path and environment",
+    ),
+]
+
+
 @app.command()
 def install(
     ref: Annotated[
@@ -671,6 +738,8 @@ def install(
         str | None,
         typer.Option("--repo", help="CPython fork URL or GitHub owner/repository"),
     ] = None,
+    configure_cache: ConfigureCacheOption = None,
+    no_configure_cache: NoConfigureCacheOption = False,
     reference_repo: Annotated[
         Path | None,
         typer.Option(
@@ -694,6 +763,8 @@ def install(
             jobs=jobs,
             repo=repo,
             reference_repo=reference_repo,
+            configure_cache=configure_cache,
+            no_configure_cache=no_configure_cache,
             verbose=verbose,
         )
         commit = _resolve_ref(ref, options.repo, options.reference_repo)
@@ -754,6 +825,8 @@ def run(
         str | None,
         typer.Option("--repo", help="CPython fork URL or GitHub owner/repository"),
     ] = None,
+    configure_cache: ConfigureCacheOption = None,
+    no_configure_cache: NoConfigureCacheOption = False,
     reference_repo: Annotated[
         Path | None,
         typer.Option(
@@ -774,6 +847,8 @@ def run(
             jobs=jobs,
             repo=repo,
             reference_repo=reference_repo,
+            configure_cache=configure_cache,
+            no_configure_cache=no_configure_cache,
         )
         commit = _resolve_ref(ref, options.repo, options.reference_repo)
         build_info = BuildInfo(commit=commit, flags=options.flags)
@@ -999,6 +1074,8 @@ def bisect(
         str | None,
         typer.Option("--repo", help="CPython fork URL or GitHub owner/repository"),
     ] = None,
+    configure_cache: ConfigureCacheOption = None,
+    no_configure_cache: NoConfigureCacheOption = False,
     reference_repo: Annotated[
         Path | None,
         typer.Option(
@@ -1027,8 +1104,12 @@ def bisect(
         jobs=jobs,
         repo=repo,
         reference_repo=reference_repo,
+        configure_cache=configure_cache,
+        no_configure_cache=no_configure_cache,
     )
     repo_dir = _ensure_repo(options.repo, options.reference_repo)
+    # Validate before the initial bisect cleanup can remove the cache.
+    _resolve_configure_cache(options.configure_cache, repo_dir)
 
     try:
         # Resolve refs to commits
@@ -1098,6 +1179,8 @@ def bisect(
                 build_dir = build_python(current_commit, options)
                 build_info = BuildInfo.from_directory(build_dir)
                 python_bin = python_binary_location(BUILDS_DIR, build_info)
+            except ConfigureCacheError:
+                raise
             except typer.Exit:
                 # Build failed - skip this commit in bisect
                 output.error("Build failed, skipping commit (exit 125)")

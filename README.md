@@ -152,6 +152,32 @@ disable it. Every-python respects an existing `CC` setting and otherwise uses
 Clang on macOS or the default C compiler on Linux. Windows builds continue
 normally unless `--ccache` is explicitly requested, which is unsupported.
 
+### Reuse configure checks across builds
+
+On macOS and Linux, `--configure-cache PATH` reuses `./configure` checks across
+nearby commits. It works with `install`, `run`, and `bisect`, alongside ccache:
+
+```bash
+every-python install main --configure-cache ~/config.cache
+
+# Set a default cache, or disable it for one command
+export EVERY_PYTHON_CONFIGURE_CACHE_FILE=~/config.cache
+every-python install main --no-configure-cache
+```
+
+The CLI path overrides the environment variable. `--no-configure-cache` overrides
+both, regardless of option order. Relative paths use your current directory and
+`~` is expanded. Configure creates or updates the file; its parent directory must
+exist. Keep it outside the managed CPython checkout, which is cleaned before
+builds. Completed builds are still reused normally.
+
+**Cache compatibility is your responsibility.** You can reuse a cache from a
+compatible local CPython build. Use separate caches when changing Python versions,
+compilers, build flags, or dependencies. Stale results can produce failures or
+incorrect configuration. A configure failure with caching enabled stops the
+command, including a bisect; choose another cache or use `--no-configure-cache`
+to retry. Other build failures retain the usual bisect skip behavior.
+
 ### Run Python with a specific version
 
 ```bash
