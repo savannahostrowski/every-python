@@ -7,6 +7,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+* Bump the python-dependencies group with 3 updates. PR [#77](https://github.com/savannahostrowski/every-python/pull/77) by [@dependabot[bot]](https://github.com/apps/dependabot).
 * Bump astral-sh/setup-uv from 10.0.1 to 10.2.0 in the github-actions group. PR [#76](https://github.com/savannahostrowski/every-python/pull/76) by [@dependabot[bot]](https://github.com/apps/dependabot).
 * Bump the python-dependencies group with 3 updates. PR [#74](https://github.com/savannahostrowski/every-python/pull/74) by [@dependabot[bot]](https://github.com/apps/dependabot).
 * Bump the github-actions group with 2 updates. PR [#73](https://github.com/savannahostrowski/every-python/pull/73) by [@dependabot[bot]](https://github.com/apps/dependabot).
